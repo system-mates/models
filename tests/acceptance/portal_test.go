@@ -48,6 +48,22 @@ func TestPortalCanOwnRootRoute(t *testing.T) {
 	}
 }
 
+func TestPortalUsesConfiguredMateTitle(t *testing.T) {
+	mate := startMateConfigured(t, `title: "Operations & Control"`, "portal")
+
+	response := mate.request(t, http.MethodGet, "/portal", "", "")
+	body := responseBody(t, response)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("portal with title: status=%d body=%s", response.StatusCode, body)
+	}
+	if !strings.Contains(body, "<title>Operations &amp; Control</title>") || !strings.Contains(body, "<h1>Operations &amp; Control</h1>") {
+		t.Fatalf("configured title is not rendered and escaped: %s", body)
+	}
+	if strings.Contains(body, "<title>Mate Portal</title>") || strings.Contains(body, "<h1>Mate Portal</h1>") {
+		t.Fatalf("default portal title remains when title is configured: %s", body)
+	}
+}
+
 func TestPortalRecognizesUsersModel(t *testing.T) {
 	mate := startMate(t, "portal", "users")
 

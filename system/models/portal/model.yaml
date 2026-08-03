@@ -7,8 +7,7 @@ producers:
     html:
       template: |
         <!doctype html><html lang="en"><head><meta charset="utf-8"><meta
-        name="viewport" content="width=device-width, initial-scale=1"><title>Mate
-        Portal</title><link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><link rel="stylesheet"
+        name="viewport" content="width=device-width, initial-scale=1"><title>{{ if .config.title }}{{ .config.title }}{{ else }}Mate Portal{{ end }}</title><link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><link rel="stylesheet"
         href="/portal/static/portal.css?v=20260801-1"></head><body><div class="portal-shell">
         {{ $authentication_enabled := false }}{{ range .config.portal }}{{ if eq .model "users" }}{{ $authentication_enabled = true }}{{ end }}{{ end }}
         <aside class="portal-nav"><div class="portal-brand"><a href="/portal">Mate</a></div><button class="portal-session-button" type="button" data-portal-path="/users/login"{{ if not $authentication_enabled }} hidden{{ end }}>Sign in</button><nav>
@@ -16,7 +15,7 @@ producers:
         {{range .links}}<a href="{{.path}}" data-portal-path="{{.path}}">{{.text}}</a>{{end}}
         </section>{{end}}</nav></aside>
         <iframe class="portal-content" name="portal-content" title="Portal content"
-        srcdoc="<!doctype html><html><body><main style='font-family:system-ui;padding:28px'><h1>Mate Portal</h1><p>Select a model view from the navigation.</p></main></body></html>"></iframe>
+        srcdoc="<!doctype html><html><body><main style='font-family:system-ui;padding:28px'><h1>{{ if .config.title }}{{ .config.title }}{{ else }}Mate Portal{{ end }}</h1><p>Select a model view from the navigation.</p></main></body></html>"></iframe>
         </div><script>
         (() => {
           const frame = document.querySelector('.portal-content');
