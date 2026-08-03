@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MakeMate Arch — {{ .activity.view_model.value.mode }}</title>
+  <link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2">
+  <link rel="stylesheet" href="/arch/static/arch.css?v=20260731-1">
+  <script src="/arch/static/mate-d2.js" defer></script>
+  <script src="/arch/static/arch.js?v=20260731-2" defer></script>
+</head>
+<body>
+<main class="arch-shell" data-arch-view="{{ .activity.view_model.value.mode }}" data-selected-model="{{ .activity.view_model.value.selected_model }}" data-csrf="{{ .caller.security.csrf_token }}">
+  <header>
+    <p class="muted">System model</p>
+    <h1>{{ if eq .activity.view_model.value.mode "operations" }}Operations View{{ else }}Architecture View{{ end }}</h1>
+  </header>
+  <p>{{ if eq .activity.view_model.value.mode "operations" }}Loaded and active runtime structure. Select a node to inspect current information.{{ else }}Normalized declared structure, including elements outside the active profile.{{ end }}</p>
+  <section class="panel profile-summary" aria-label="Defined profiles">
+    <h2>Profiles</h2>
+    <div class="profile-summary-list">
+      {{ if .activity.view_model.value.structure.profiles.available }}
+      {{ range .activity.view_model.value.structure.profiles.available }}{{ $profile := . }}<span class="profile-badge{{ if eq $.activity.view_model.value.mode "operations" }}{{ range $.activity.view_model.value.structure.profiles.active_profiles }}{{ if eq . $profile }} active{{ end }}{{ end }}{{ end }}">{{ $profile }}{{ if eq $.activity.view_model.value.mode "operations" }}{{ range $.activity.view_model.value.structure.profiles.active_profiles }}{{ if eq . $profile }}<span class="profile-active-label">Active</span>{{ end }}{{ end }}{{ end }}</span>{{ end }}
+      {{ else }}<span class="muted">No profiles defined</span>{{ end }}
+    </div>
+    {{ if .activity.view_model.value.structure.profiles.default }}<p class="muted">Default: <strong>{{ .activity.view_model.value.structure.profiles.default }}</strong></p>{{ end }}
+  </section>
+  {{ if eq .activity.view_model.value.mode "operations" }}
+  <section class="operations-summary" aria-label="Runtime overview">
+    <div class="runtime-metric"><span>Started at</span><strong>{{ .activity.view_model.value.status.started_at }}</strong></div>
+    <div class="runtime-metric"><span>Uptime</span><strong>{{ .activity.view_model.value.status.uptime_seconds }} seconds</strong></div>
+    <div class="runtime-metric"><span>Scheduler</span><strong>{{ if .activity.view_model.value.status.scheduler.enabled }}Enabled{{ else }}Disabled{{ end }}</strong></div>
+    <div class="runtime-metric"><span>HTTP</span><strong>{{ if .activity.view_model.value.status.http.enabled }}Enabled{{ else }}Disabled{{ end }}</strong></div>
+  </section>
+  {{ end }}
+  <section class="panel model-selector" aria-label="Model selection"><h2>Model</h2><div class="model-selector-options">{{ range .activity.view_model.value.models }}<a class="button{{ if eq .name $.activity.view_model.value.selected_model }} primary{{ end }}" href="/arch/{{ $.activity.view_model.value.mode }}?model={{ urlquery .name }}">{{ .name }}</a>{{ end }}</div></section>
+  {{ if eq .activity.view_model.value.mode "operations" }}
+  <section class="panel lifecycle-controls" aria-label="Lifecycle operations">
+    <h2>Lifecycle</h2>
+    <div class="lifecycle-actions">
+      <form method="post" action="/arch/lifecycle/reload-model"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><input type="hidden" name="model" value="{{ .activity.view_model.value.selected_model }}"><button type="submit">Reload selected model</button></form>
+      <form method="post" action="/arch/lifecycle/restart-model"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><input type="hidden" name="model" value="{{ .activity.view_model.value.selected_model }}"><button type="submit" onclick="return confirm('Restart the selected model?')">Restart selected model</button></form>
+      <form method="post" action="/arch/lifecycle/restart-application"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><button type="submit" onclick="return confirm('Restart the application?')">Restart application</button></form>
+    </div>
+  </section>
+  {{ end }}
+  <section class="arch-grid{{ if eq .activity.view_model.value.mode "architecture" }} architecture-static{{ end }}">
+    <div>
+      <div class="arch-controls"><button type="button" data-expand title="Show one more relationship level">+</button><button type="button" data-collapse title="Show one fewer relationship level">−</button><span data-depth>1 relationship level</span></div>
+      <fieldset class="arch-view-filter" data-view-filter>
+        <legend>Diagram content</legend>
+        <label><input type="radio" name="diagram-content" value="all" checked><span>All</span></label>
+        <label><input type="radio" name="diagram-content" value="no-ui"><span>No UI</span></label>
+        <label><input type="radio" name="diagram-content" value="only-ui"><span>Only UI</span></label>
+      </fieldset>
+      <mate-d2 aria-label="Interactive D2 architecture graph"></mate-d2>
+      <div class="arch-legend" aria-label="Diagram legend">
+        <span><i class="legend-line activation"></i>Coordinator activation</span>
+        <span><i class="legend-line dependency"></i>State/share dependency, ring at producer</span>
+        <span><i class="legend-arrow read"></i>Read into producer/activity</span>
+        <span><i class="legend-arrow write"></i>Write to state/share</span>
+        <span><i class="legend-containment"></i>Producer contains HTML activity</span>
+        <span><i class="legend-swatch io"></i>Producer with IO activity</span>
+      </div>
+    </div>
+    {{ if eq .activity.view_model.value.mode "operations" }}<aside class="panel" data-node-details><h2>Selection</h2><p>Select a graph node. Selection never performs a lifecycle operation.</p></aside>{{ end }}
+  </section>
+  <script type="application/json" data-structure>{{ .activity.view_model.value.structure_json }}</script>
+  {{ if eq .activity.view_model.value.mode "operations" }}<script type="application/json" data-status>{{ .activity.view_model.value.status_json }}</script><script type="application/json" data-events>{{ .activity.view_model.value.events_json }}</script>{{ end }}
+  <dialog class="value-dialog" data-value-dialog aria-labelledby="value-dialog-title">
+    <header><div><p class="muted" data-value-kind>Stored value</p><h2 id="value-dialog-title" data-value-title>Value</h2></div><button type="button" class="dialog-close" data-value-close aria-label="Close value dialog">×</button></header>
+    <div class="value-dialog-body" data-value-body></div>
+    <footer><button type="button" data-value-close>Close</button></footer>
+  </dialog>
+</main>
+</body>
+</html>

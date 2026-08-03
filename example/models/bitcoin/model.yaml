@@ -1,0 +1,41 @@
+model:
+  name: bitcoin
+metrics:
+  authorization: {mode: public}
+coordinators:
+  schedules:
+  - name: market-schedule
+    every: 10s
+    producers: [collect-market-price]
+  routes:
+  - name: demo
+    method: GET
+    path: /
+    authorization: {mode: public}
+    portal: Live Metrics Demo
+    producers: [demo-page]
+producers:
+- name: collect-market-price
+  profiles: []
+  activities:
+  - name: market-fetch
+    io:
+      via: fetch
+      direction: input
+      params:
+        return: json
+        url: https://api.coinbase.com/v2/prices/BTC-USD/spot
+        options:
+          method: GET
+          headers: {Accept: application/json}
+  - name: market-metric
+    metric:
+      name: market
+      properties:
+        price: '=activity.market-fetch.value.data.amount.number()'
+- name: demo-page
+  profiles: []
+  activities:
+  - name: page
+    html:
+      template_file: templates/index.html

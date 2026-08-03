@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MyUplink live metrics</title>
+  <style>
+    .myuplink-metrics {
+      width: min(96rem, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 1.5rem 0 3rem;
+    }
+    .myuplink-metrics > header {
+      margin-bottom: 1.25rem;
+    }
+    .myuplink-metrics h1 {
+      margin-bottom: .35rem;
+    }
+    .myuplink-metrics > header p {
+      margin: 0;
+      color: #64748b;
+    }
+    .myuplink-graphs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.25rem;
+    }
+    .myuplink-graphs .wide {
+      grid-column: 1 / -1;
+    }
+    @media (max-width: 800px) {
+      .myuplink-graphs {
+        grid-template-columns: 1fr;
+      }
+      .myuplink-graphs .wide {
+        grid-column: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+<main class="myuplink-metrics">
+  <header>
+    <h1>MyUplink live metrics</h1>
+    <p>Live device telemetry, refreshed every five minutes.</p>
+  </header>
+
+  <section class="myuplink-graphs" aria-label="MyUplink time-series graphs">
+    <mate-graph type="line" title="Parameter 4"
+      navigate="time" range="1d" refresh="5m" legend="hide">
+      <mate-metric-series model="myuplink" metric="myuplink/20218038-2020-8-12-4-1-11"
+        property="4" label="Parameter 4"></mate-metric-series>
+    </mate-graph>
+
+    <mate-graph type="line" title="Parameter 54"
+      navigate="time" range="1d" refresh="5m" legend="hide">
+      <mate-metric-series model="myuplink" metric="myuplink/20218038-2020-8-12-4-1-11"
+        property="54" label="Parameter 54"></mate-metric-series>
+    </mate-graph>
+
+    <mate-graph class="wide" type="line" title="Parameters 10, 11 and 12"
+      navigate="time" range="1d" refresh="5m" legend="show">
+      <mate-metric-series model="myuplink" metric="myuplink/20218038-2020-8-12-4-1-11"
+        property="10" label="Parameter 10"></mate-metric-series>
+      <mate-metric-series model="myuplink" metric="myuplink/20218038-2020-8-12-4-1-11"
+        property="11" label="Parameter 11"></mate-metric-series>
+      <mate-metric-series model="myuplink" metric="myuplink/20218038-2020-8-12-4-1-11"
+        property="12" label="Parameter 12"></mate-metric-series>
+    </mate-graph>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,52 @@
+model:
+  name: logs
+
+coordinators:
+  routes:
+  - name: logs_page
+    method: GET
+    path: "/"
+    authorization: {mode: optional, any_of: [admin]}
+    portal: Logs
+    producers: [logs_page]
+  - name: logs_set_level
+    method: POST
+    path: "/level"
+    authorization: {mode: optional, any_of: [admin]}
+    producers: [logs_set_level, logs_page]
+  - name: logs_cancel_level
+    method: POST
+    path: "/level/cancel"
+    authorization: {mode: optional, any_of: [admin]}
+    producers: [logs_cancel_level, logs_page]
+
+producers:
+- name: logs_page
+  activities:
+  - name: status
+    compose: 'root = runtime_logs_status()'
+  - name: result
+    compose: 'root = runtime_logs_query(params)'
+  - name: view
+    html:
+      template: |
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Runtime logs</title>
+        <link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><style>
+        .log-page{width:min(100% - 2rem,96rem);margin:auto;padding:2rem 0 3rem}.log-header{margin-bottom:1.25rem}.log-header h1{margin:.2rem 0}.status{margin-bottom:1rem;padding:.75rem 1rem;border:1px solid var(--mate-border);border-radius:.75rem;background:var(--mate-surface-soft);font-weight:600}.controls{display:grid;gap:1rem;margin-bottom:1rem;padding:1rem}.controls form{display:flex;gap:.65rem;align-items:center;flex-wrap:wrap;margin:0}.controls form+form{padding-top:1rem;border-top:1px solid var(--mate-border)}.controls input,.controls select{width:auto;min-width:8rem}.controls input[name=q]{flex:1 1 15rem}.table-shell{overflow:auto;padding:0}.table-shell table{min-width:68rem;margin:0}.table-shell th{position:sticky;top:0;background:var(--mate-surface-soft);font-size:.72rem;text-transform:uppercase}.table-shell td:first-child{white-space:nowrap;font-variant-numeric:tabular-nums}.event-details summary{cursor:pointer;font-weight:700}.event-details pre{max-width:34rem;overflow:auto;white-space:pre-wrap}.level-debug{color:#475569}.level-info{color:#1d4ed8}.level-warn{color:#a16207}.level-error{color:#b91c1c}@media(max-width:720px){.controls form{align-items:stretch}.controls input,.controls select,.controls button{width:100%}}
+        </style></head><body><main class="log-page"><header class="log-header"><p class="muted">System model</p><h1>Runtime logs</h1><p class="muted">Inspect persisted events and temporarily adjust the effective log level.</p></header>
+        {{ $status := .activity.status.value }}
+        <div class="status">Persistence: {{ if $status.persistence_enabled }}enabled{{ else }}disabled{{ end }} · configured {{ $status.configured_level }} · effective {{ $status.effective_level }}{{ if $status.override_expiration }} until {{ $status.override_expiration }}{{ end }} · storage {{ $status.storage_status }}</div>
+        <section class="panel controls" aria-label="Log controls"><form method="get" action="/logs"><select name="level" aria-label="Log level"><option value="">All levels</option><option value="debug"{{ if eq .params.level "debug" }} selected{{ end }}>debug</option><option value="info"{{ if eq .params.level "info" }} selected{{ end }}>info</option><option value="warn"{{ if eq .params.level "warn" }} selected{{ end }}>warn</option><option value="error"{{ if eq .params.level "error" }} selected{{ end }}>error</option></select><input name="model" value="{{ .params.model }}" placeholder="Model"><input name="producer" value="{{ .params.producer }}" placeholder="Producer"><input name="activity" value="{{ .params.activity }}" placeholder="Activity"><input name="activation" value="{{ .params.activation }}" placeholder="Activation"><input name="q" value="{{ .params.q }}" placeholder="Search message"><input name="from" value="{{ .params.from }}" placeholder="From (RFC3339)"><button class="primary" type="submit">Refresh</button></form>
+        <form method="post" action="/logs/level"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><select name="override_level" aria-label="Temporary log level"><option>debug</option><option>info</option><option>warn</option><option>error</option></select><input name="duration" value="15m" aria-label="Override duration"><button type="submit">Set temporary level</button><button type="submit" formaction="/logs/level/cancel">Cancel override</button></form></section>
+        <section class="panel table-shell"><table><thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Model</th><th>Producer/activity</th><th>Activation</th><th>Message</th></tr></thead><tbody>{{ range .activity.result.value.events }}<tr><td>{{ .timestamp }}</td><td class="level-{{ .level }}">{{ .level }}</td><td>{{ .source }}</td><td>{{ .model }}</td><td>{{ .producer }}{{ if .activity }}/{{ .activity }}{{ end }}</td><td>{{ .activation }}</td><td><details class="event-details"><summary>{{ .message }}</summary><pre>{{ printf "%+v" . }}</pre></details></td></tr>{{ else }}<tr><td colspan="7">No matching persisted events.</td></tr>{{ end }}</tbody></table></section>
+        </main></body></html>
+
+- name: logs_set_level
+  activities:
+  - name: set_level
+    compose: 'root = runtime_logs_set_level(params.override_level, params.duration, params.expiration)'
+
+- name: logs_cancel_level
+  activities:
+  - name: cancel_level
+    compose: 'root = runtime_logs_cancel_level()'

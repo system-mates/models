@@ -1,0 +1,18 @@
+model:
+  name: modeldb
+
+producers:
+- name: modeldb_query
+  activities:
+  - name: query
+    compose: |
+      root = model_sql_query(params.model, params.query, params.args.or([]))
+
+coordinators:
+  routes:
+  - name: modeldb_query
+    method: POST
+    path: /query
+    authorization: {mode: authenticated}
+    producers:
+    - modeldb_query

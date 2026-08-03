@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MakeMate live metrics demo</title>
+</head>
+<body>
+<main>
+  <h1>Live market price</h1>
+  <ul>
+    <li>A scheduler retrieves the public BTC/USD spot price every ten seconds.</li>
+    <li>A metric activity stores each successful value.</li>
+    <li>The runtime exposes the stored history at <code>/_metrics/demo</code>.</li>
+    <li><code>&lt;mate-graph&gt;</code> displays the history.</li>
+    <li>Temporary provider failures are retried on the next run.</li>
+  </ul>
+  <mate-graph type="line"
+    title="Live BTC market price" unit="USD"
+    navigate="time" range="15m" refresh="10s" legend="hide">
+
+
+                      <mate-metric-series model="bitcoin"
+                        metric="market"
+                        property="price"
+                        label="Pris">
+                      </mate-metric-series>
+
+
+  </mate-graph>
+</main>
+</body>
+</html>

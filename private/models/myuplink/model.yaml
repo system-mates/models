@@ -1,0 +1,120 @@
+model:
+  name: myuplink
+  env:
+    MYUPLINK_CLIENT_ID:
+      default: 4d6a6096-fc9a-43d1-8a6d-befe95af796f
+    MYUPLINK_CLIENT_SECRET:
+      default: A164B5FAF34FBC9C1E44EB9AA586B0CC
+    MYUPLINK_BASE_URL:
+      default: https://api.myuplink.com
+metrics:
+  authorization: {mode: public}
+coordinators:
+  bootstrap:
+  - name: initial_update
+    producers:
+    - myuplink_update
+  schedules:
+  - name: myuplink_update_every_5_minutes
+    cron: "*/5 * * * *"
+    producers:
+    - myuplink_update
+  routes:
+  - name: myuplink_metrics
+    method: GET
+    path: /
+    authorization: {mode: public}
+    portal: MyUplink Metrics
+    producers:
+    - myuplink_metrics_page
+producers:
+- name: myuplink_metrics_page
+  activities:
+  - name: page
+    html:
+      template_file: templates/metrics.html
+- name: myuplink_update
+  activities:
+  - name: token
+    io:
+      via: fetch
+      params:
+        return: json
+        url: =env.MYUPLINK_BASE_URL + "/oauth/token"
+        options:
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: ="grant_type=client_credentials&client_id=" + env.MYUPLINK_CLIENT_ID
+            + "&client_secret=" + env.MYUPLINK_CLIENT_SECRET
+  - name: auth
+    compose: 'root = activity.token.value.token_type + " " + activity.token.value.access_token'
+  - name: systems
+    io:
+      via: fetch
+      params:
+        return: json
+        url: =env.MYUPLINK_BASE_URL + "/v2/systems/me"
+        options:
+          method: GET
+          headers:
+            Authorization: "=activity.auth.value"
+  - name: devices
+    iterate:
+      over: "=activity.systems.value.systems.index(0).devices"
+      as: device
+      activities:
+      - name: device_id
+        compose: 'root = device.id'
+
+
+  - name: points
+    iterate:
+      over: "=activity.devices.value"
+      as: device_id
+      activities:
+      - name: fetch_points
+        io:
+          via: fetch
+          params:
+            return: json
+            url: '=env.MYUPLINK_BASE_URL + "/v2/devices/" + device_id + "/points"'
+            options:
+              method: GET
+              headers:
+                Authorization: "=activity.auth.value"
+      - name: write_points
+        iterate:
+          over: '=activity.fetch_points.value.map_each(point -> point.merge({"device_id": device_id}))'
+          as: point
+          activities:
+          - name: trace_point
+            compose: |
+              let points = share_init("myuplink.points", [])
+              root = share_set("myuplink.points", $points.append({
+                "device_id": point.device_id,
+                "parameterId": point.parameterId,
+                "timestamp": point.timestamp,
+                "value": point.value
+              }))
+          - name: write_point
+            metric:
+              name: '= "myuplink/" + point.device_id'
+              property: "=point.parameterId"
+              timestamp: "=point.timestamp"
+              value: "=point.value"
+      - name: device_points
+        compose: |
+          root = {
+            "device_id": device_id,
+            "points": activity.fetch_points.value,
+            "metrics": activity.write_points.value
+          }
+
+  - name: store_latest
+    compose: |
+      root = state_set("myuplink.latest", {
+        "systems": activity.systems.value,
+        "device_ids": activity.devices.value,
+        "points": activity.points.value
+      })

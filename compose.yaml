@@ -1,0 +1,4 @@
+ services:
+  models:
+    image: mate/models
+    build: .

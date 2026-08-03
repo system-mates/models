@@ -1,0 +1,836 @@
+producers:
+- name: set_target
+  activities:
+  - name: set
+    compose: |
+      let requested_target = params.target.number()
+      root = state_set("target.level", $requested_target)
+- name: set_target_time
+  activities:
+  - name: set
+    compose: |
+      let target_time = params.target_time.number()
+      root = state_set("target.time", $target_time)
+- name: index_page
+  activities:
+  - name: page_data
+    compose:
+      bloblang: |
+        let cable_connected = share_init("charge.cable_connected", false)
+        let charge_level = share_init("level", 100)
+        let requested_goal_level = state_init("target.level", 100)
+        let goal_level = $requested_goal_level.round()
+        let target_time = state_init("target.time", 0)
+        let target_time_text = if $target_time > 0 { $target_time.ts_format("2006-01-02 15:04", "Europe/Stockholm") } else { "Ej angiven" }
+        let charge_intervals = share_init("charge.intervals", 0)
+        let charge_hours = if $charge_intervals > 0 { $charge_intervals / 4.0 } else { 0.0 }
+        let charge_minutes = ($charge_hours * 60).round()
+        let charge_whole_hours = ($charge_minutes / 60).floor()
+        let charge_remaining_minutes = $charge_minutes - ($charge_whole_hours * 60)
+        let charge_duration_text = $charge_whole_hours.string() + "h " + $charge_remaining_minutes.string() + "m"
+        let charge_speed = state_init("speed", 10.0) / 1.0
+
+        let sum_energy = state_init("charge.sum_energy", 0)
+        let sum_cost = state_init("charge.sum_cost", 0)
+        let energy_cost = state_init("charge.energy_cost", 0)
+        let average_price = state_init("charge.average_price", 0)
+        let battery_capacity = state_init("charge.battery_capacity", 0)
+
+        let price_low = state_init("charge.price_low", 0.50)
+        let price_high = state_init("charge.price_high", 1.50)
+        let slots = share_init("charge.plan", []).map_each(slot -> slot.merge({
+          "charge_class": if slot.price <= $price_low {
+            "lowprice"
+          } else if slot.price > $price_high {
+            "highprice"
+          } else {
+            "mediumprice"
+          },
+          "target_time_selected": slot.end_timestamp == $target_time
+        }))
+        root = activation_set("view", {
+          "cable": {
+            "connected": $cable_connected,
+            "text": if $cable_connected {
+              "Laddkabel ansluten"
+            } else {
+              "Laddkabel inte ansluten"
+            },
+            "class": if $cable_connected {
+              "connected"
+            } else {
+              "not-connected"
+            }
+          },
+
+          "summary": {
+            "sum_energy": $sum_energy,
+            "sum_cost": $sum_cost,
+            "energy_cost": $energy_cost,
+            "average_price": $average_price,
+            "battery_capacity": $battery_capacity,
+            "charge_speed": $charge_speed
+          },
+
+          "charge": {
+            "target_time_text": $target_time_text,
+            "hours": $charge_hours,
+            "duration_text": $charge_duration_text,
+            "level": $charge_level,
+            "goal_level": $goal_level,
+            "speed": $charge_speed
+          },
+
+          "schedule": {
+            "price_low": $price_low,
+            "price_high": $price_high,
+            "intervals": $charge_intervals,
+            "on_count": $slots.filter(slot -> slot.charge).length(),
+            "no_target_time": $target_time == 0,
+            "slots": $slots
+          }
+        })
+  - name: cable_status
+    html:
+      template: |
+        {{$cable := index (activation "view") "cable"}}
+
+        <style>
+          .laddapp-cable-icon {
+            width: 6.25rem;
+            height: 6.25rem;
+
+            background-image:
+              url("/static/img/charging-station.png");
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+
+            border-radius: 0.4rem;
+          }
+
+          .laddapp-cable-icon.connected {
+            background-color: rgba(151, 245, 39, 0.95);
+          }
+
+          .laddapp-cable-icon.not-connected {
+            background-color: rgba(255, 48, 0, 0.88);
+          }
+
+          .laddapp-cable-text {
+            font-size: 0.68rem;
+            text-align: center;
+          }
+        </style>
+
+        <section
+          class="laddapp-cable-status"
+          layout="
+            rows;
+            gap: 0.5rem;
+            align: center
+          ">
+
+          <div
+            class="laddapp-cable-icon {{$cable.class}}"
+            title="{{$cable.text}}">
+          </div>
+
+          <div class="laddapp-cable-text">
+            {{$cable.text}}
+          </div>
+        </section>
+  - name: statistics
+    html:
+      template: |
+        {{$summary := index (activation "view") "summary"}}
+
+        <style>
+          .laddapp-statistics-table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+
+          .laddapp-statistics-table th,
+          .laddapp-statistics-table td {
+            padding: 0.5rem;
+            text-align: center;
+          }
+
+          .laddapp-statistics-table th {
+            vertical-align: bottom;
+          }
+
+          .laddapp-statistics-table small {
+            display: block;
+            font-weight: normal;
+          }
+        </style>
+
+        <section class="laddapp-statistics">
+          <table class="laddapp-statistics-table">
+            <thead>
+              <tr>
+                <th>
+                  Laddat
+                  <small>kWh</small>
+                </th>
+
+                <th>
+                  Kostnad
+                  <small>SEK</small>
+                </th>
+
+                <th>
+                  Medel laddat
+                  <small>SEK/kWh</small>
+                </th>
+
+                <th>
+                  Medel alla
+                  <small>SEK/kWh</small>
+                </th>
+
+                <th>
+                  Kapacitet
+                  <small>kWh</small>
+                </th>
+
+                <th>
+                  Laddhastighet
+                  <small>%/timme</small>
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td>{{printf "%.1f" $summary.sum_energy}}</td>
+                <td>{{printf "%.2f" $summary.sum_cost}}</td>
+                <td>{{printf "%.2f" $summary.energy_cost}}</td>
+                <td>{{printf "%.2f" $summary.average_price}}</td>
+                <td>{{printf "%.1f" $summary.battery_capacity}}</td>
+                <td>{{printf "%.1f" $summary.charge_speed}}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+  - name: overview
+    html:
+      template: |
+        <section
+          class="laddapp-overview"
+          layout="
+            columns: auto 1fr;
+            gap: 1rem;
+            align: center
+          ">
+
+          {{html .activity.cable_status.value}}
+          {{html .activity.statistics.value}}
+        </section>
+  - name: charge_plan
+    html:
+      template: |
+        {{$charge := index (activation "view") "charge"}}
+
+        <style>
+          .laddapp-field-label {
+            font-weight: 500;
+          }
+
+          .laddapp-field-value,
+          .laddapp-numeric-value {
+            text-align: right;
+          }
+
+          .laddapp-plan-info {
+            display: grid;
+            grid-template-columns: 8rem minmax(0, 1fr);
+            gap: 1rem;
+            align-items: center;
+          }
+
+          .laddapp-plan-control {
+            display: grid;
+            grid-template-columns: 8rem 13rem minmax(8rem, 1fr);
+            gap: 1rem;
+            align-items: center;
+          }
+
+          .laddapp-charge-plan meter,
+          .laddapp-charge-plan input[type="range"] {
+            accent-color: #16a34a;
+            height: 1rem;
+            width: 100%;
+            margin: 0;
+          }
+
+          .laddapp-charge-plan meter::-webkit-meter-bar {
+            background: #d1d5db;
+          }
+
+          .laddapp-charge-plan meter::-webkit-meter-optimum-value,
+          .laddapp-charge-plan meter::-webkit-meter-suboptimum-value,
+          .laddapp-charge-plan meter::-webkit-meter-even-less-good-value,
+          .laddapp-charge-plan meter::-moz-meter-bar {
+            background: #16a34a;
+          }
+
+          .laddapp-goal-form {
+            margin: 0;
+          }
+
+          .laddapp-goal-form input[type="range"] {
+            appearance: none;
+            -webkit-appearance: none;
+            background: #d1d5db;
+            border: 0;
+            border-radius: 999px;
+            height: 1rem;
+            overflow: hidden;
+            width: 100%;
+            padding: 0;
+          }
+
+          .laddapp-goal-form input[type="range"]::-webkit-slider-runnable-track {
+            background: #d1d5db;
+            border: 0;
+            border-radius: 999px;
+            height: 1rem;
+          }
+
+          .laddapp-goal-form input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #15803d;
+            border: 0;
+            box-shadow: -100vw 0 0 100vw #16a34a;
+            height: 1rem;
+            width: 0.5rem;
+          }
+
+          .laddapp-goal-form input[type="range"]::-moz-range-track {
+            background: #d1d5db;
+            border: 0;
+            border-radius: 999px;
+            height: 1rem;
+          }
+
+          .laddapp-goal-form input[type="range"]::-moz-range-progress {
+            background: #16a34a;
+            border-radius: 999px 0 0 999px;
+            height: 1rem;
+          }
+
+          .laddapp-goal-form input[type="range"]::-moz-range-thumb {
+            background: #15803d;
+            border: 0;
+            border-radius: 0;
+            height: 1rem;
+            width: 0.5rem;
+          }
+        </style>
+
+        <section
+          class="laddapp-charge-plan"
+          layout="
+            rows;
+            gap: 0.75rem
+          ">
+
+          <h2>Laddplan</h2>
+
+          <div class="laddapp-plan-info">
+            <div class="laddapp-field-label">
+              Klar:
+            </div>
+
+            <output class="laddapp-field-value">
+              {{$charge.target_time_text}}
+            </output>
+          </div>
+
+          <div class="laddapp-plan-control">
+            <div class="laddapp-field-label">
+              Laddtid:
+            </div>
+
+            <output
+              id="laddapp-charge-duration"
+              class="laddapp-numeric-value">
+              {{$charge.duration_text}}
+            </output>
+
+            <meter
+              id="laddapp-charge-duration-meter"
+              value="{{$charge.hours}}"
+              max="10"
+              optimum="0">
+            </meter>
+          </div>
+
+          <div class="laddapp-plan-control">
+            <div class="laddapp-field-label">
+              Laddnivå:
+            </div>
+
+            <output class="laddapp-numeric-value">
+              {{printf "%.0f %%" $charge.level}}
+            </output>
+
+            <meter
+              value="{{$charge.level}}"
+              max="100">
+            </meter>
+          </div>
+
+          <form
+            class="laddapp-plan-control laddapp-goal-form"
+            method="post"
+            action="/charging/target"
+            onsubmit="event.preventDefault(); updateChargeTarget(this)">
+            <div class="laddapp-field-label">
+              Mål:
+            </div>
+
+            <output
+              class="laddapp-numeric-value"
+              name="target_value"
+              for="laddapp-target">
+              {{$charge.goal_level}} %
+            </output>
+
+            <input
+              id="laddapp-target"
+              type="range"
+              name="target"
+              aria-label="Målnivå"
+              min="0"
+              max="100"
+              step="1"
+              value="{{$charge.goal_level}}"
+              data-charge-level="{{$charge.level}}"
+              data-charge-speed="{{$charge.speed}}"
+              oninput="updateChargePreview(this)"
+              onchange="submitChargeTarget(this)">
+          </form>
+
+          <script>
+            function updateChargePreview(input) {
+              input.form.elements.target_value.value = input.value + " %";
+
+              const level = Number(input.dataset.chargeLevel);
+              const speed = Number(input.dataset.chargeSpeed);
+              if (speed <= 0) return;
+
+              const intervals = Math.ceil(60 * (Number(input.value) - level) / speed / 15);
+              const minutes = intervals * 15;
+              const hours = Math.floor(minutes / 60);
+              const remainingMinutes = minutes % 60;
+              document.getElementById("laddapp-charge-duration").value =
+                `${hours}h ${remainingMinutes}m`;
+              document.getElementById("laddapp-charge-duration-meter").value = minutes / 60;
+
+              clearTimeout(input.chargeTargetTimer);
+              input.chargeTargetTimer = setTimeout(() => input.form.requestSubmit(), 500);
+            }
+
+            function submitChargeTarget(input) {
+              clearTimeout(input.chargeTargetTimer);
+              input.form.requestSubmit();
+            }
+
+            async function refreshChargePage() {
+              const source = window.frameElement?.dataset.portalSource || window.location.href;
+              const response = await fetch(source, {credentials: "same-origin"});
+              if (!response.ok) return;
+              const nextDocument = new DOMParser().parseFromString(await response.text(), "text/html");
+              const currentPage = document.querySelector(".laddapp-page");
+              const nextPage = nextDocument.querySelector(".laddapp-page");
+              if (!currentPage || !nextPage) return;
+              currentPage.replaceWith(document.importNode(nextPage, true));
+              arrangeScheduleTables();
+            }
+
+            async function updateChargeTarget(form) {
+              const response = await fetch(form.action, {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: new URLSearchParams(new FormData(form))
+              });
+
+              if (response.ok) {
+                await refreshChargePage();
+              }
+            }
+          </script>
+        </section>
+  - name: schedule
+    html:
+      template: |
+        {{$schedule := index (activation "view") "schedule"}}
+
+        <style>
+          .laddapp-schedule-table {
+            width: auto;
+            max-width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+          }
+
+          .laddapp-schedule-tables {
+            max-width: 100%;
+            overflow-x: auto;
+          }
+
+          .laddapp-schedule-tables.is-split {
+            display: grid;
+            grid-template-columns: repeat(2, max-content);
+            gap: 0.5rem;
+            align-items: start;
+          }
+
+          .laddapp-schedule-table thead {
+            background-color: #ccc;
+          }
+
+          .laddapp-schedule-table th,
+          .laddapp-schedule-table td {
+            padding: 0.06rem 0.12rem;
+            line-height: 1.05;
+            vertical-align: middle;
+            border-bottom: 0;
+          }
+
+          .laddapp-schedule-table tbody tr {
+            border-bottom: 0;
+          }
+
+          .laddapp-schedule-table meter {
+            width: 2.5rem;
+            display: block;
+          }
+
+          .laddapp-slot-time {
+            width: 5ch;
+            max-width: 5ch;
+            white-space: nowrap;
+          }
+
+          .laddapp-schedule-table th:first-child {
+            width: 5ch;
+          }
+
+          .laddapp-slot-price {
+            text-align: right;
+          }
+
+          .laddapp-slot-priority {
+            width: 3ch;
+            text-align: left;
+          }
+
+          .laddapp-slot-price-cell {
+            display: grid;
+            grid-template-columns: max-content 2.5rem;
+            gap: 0.15rem;
+            align-items: center;
+          }
+
+          .laddapp-slot-charge {
+            min-width: 1.6rem;
+            text-align: center;
+          }
+
+          .laddapp-slot-ready {
+            min-width: 2.2rem;
+            text-align: center;
+          }
+
+          .laddapp-schedule-table input[type="radio"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 0.6rem;
+            height: 0.6rem;
+            min-width: 0;
+            padding: 0;
+            margin: 0;
+            border: 1px solid #6b7280;
+            border-radius: 50%;
+            vertical-align: middle;
+            cursor: pointer;
+          }
+
+          .laddapp-schedule-table input[type="radio"]:checked {
+            border-color: green;
+            background-color: green;
+          }
+
+          .laddapp-schedule-table input[type="radio"]:focus-visible {
+            outline: 2px solid green;
+            outline-offset: 2px;
+          }
+
+          .laddapp-target-time-form {
+            display: none;
+          }
+
+          .laddapp-charge-indicator {
+            display: inline-block;
+            width: 0.8rem;
+            height: 0.8rem;
+            border-radius: 50%;
+            vertical-align: middle;
+          }
+
+          .laddapp-charge-indicator.lowprice {
+            background-color: green;
+          }
+
+          .laddapp-charge-indicator.mediumprice {
+            background-color: yellow;
+          }
+
+          .laddapp-charge-indicator.highprice {
+            background-color: red;
+          }
+
+          .laddapp-schedule-empty {
+            padding: 2rem;
+            text-align: center;
+          }
+
+        </style>
+
+        <section class="laddapp-schedule">
+          <h2>Laddintervall</h2>
+
+          <form
+            id="laddapp-target-time-form"
+            class="laddapp-target-time-form"
+            method="post"
+            action="/charging/target-time"
+            onsubmit="event.preventDefault(); updateChargeTargetTime(this)">
+          </form>
+
+          <div class="laddapp-schedule-tables">
+          <table class="laddapp-schedule-table">
+            <thead>
+              <tr>
+                <th>Tid</th>
+                <th>Pris</th>
+                <th class="laddapp-slot-priority">
+                  Kö<br>({{$schedule.intervals}})
+                </th>
+                <th class="laddapp-slot-charge">
+                  På<br>({{$schedule.on_count}})
+                </th>
+                <th>
+                  Klar
+                  <input
+                    type="radio"
+                    name="target_time"
+                    value="0"
+                    form="laddapp-target-time-form"
+                    aria-label="Ingen sluttid vald"
+                    {{if $schedule.no_target_time}}checked{{end}}
+                    onchange="this.form.requestSubmit()">
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {{range $slot := $schedule.slots}}
+                <tr>
+                  <td class="laddapp-slot-time">
+                    {{$slot.quarter}}
+                  </td>
+
+                  <td>
+                    <div class="laddapp-slot-price-cell">
+
+                      <output class="laddapp-slot-price">
+                        {{printf "%.2f" $slot.price}}
+                      </output>
+
+                      <meter
+                        low="{{$schedule.price_low}}"
+                        high="{{$schedule.price_high}}"
+                        value="{{$slot.price}}"
+                        max="4.00"
+                        optimum="0">
+                      </meter>
+                    </div>
+                  </td>
+
+                  <td class="laddapp-slot-priority">
+                    {{if $slot.charge}}
+                      {{$slot.rank}}
+                    {{end}}
+                  </td>
+
+                  <td
+                    class="laddapp-slot-charge"
+                    title="{{if $slot.charge}}Laddning vald{{else}}Ingen laddning{{end}}">
+                    {{if $slot.charge}}
+                      <span
+                        class="laddapp-charge-indicator {{$slot.charge_class}}"
+                        aria-label="Laddning vald">
+                      </span>
+                    {{end}}
+                  </td>
+
+                  <td class="laddapp-slot-ready">
+                    <input
+                      type="radio"
+                      name="target_time"
+                      value="{{$slot.end_timestamp}}"
+                      form="laddapp-target-time-form"
+                      aria-label="Klar {{$slot.end_time}}"
+                      {{if $slot.target_time_selected}}checked{{end}}
+                      onchange="this.form.requestSubmit()">
+                  </td>
+                </tr>
+
+              {{else}}
+                <tr>
+                  <td
+                    colspan="5"
+                    class="laddapp-schedule-empty">
+
+                    Inga laddintervall är tillgängliga.
+                  </td>
+                </tr>
+              {{end}}
+            </tbody>
+          </table>
+          </div>
+
+          <script>
+            function arrangeScheduleTables() {
+              const container = document.querySelector(".laddapp-schedule-tables");
+              const table = container?.querySelector(".laddapp-schedule-table");
+              const body = table?.tBodies[0];
+              if (!container || !table || !body) return;
+
+              const rows = Array.from(body.rows);
+              if (rows.length < 2 || rows.some(row => row.querySelector(".laddapp-schedule-empty"))) return;
+
+              rows.forEach((row, index) => row.dataset.scheduleIndex ??= index);
+              const requiredWidth = table.scrollWidth * 2 + 8;
+
+              function updateLayout() {
+                const secondTable = container.querySelector(".laddapp-schedule-table-secondary");
+                const allRows = [
+                  ...Array.from(body.rows),
+                  ...Array.from(secondTable?.tBodies[0]?.rows ?? [])
+                ].sort((left, right) =>
+                  Number(left.dataset.scheduleIndex) - Number(right.dataset.scheduleIndex));
+
+                allRows.forEach(row => body.append(row));
+                secondTable?.remove();
+                container.classList.remove("is-split");
+
+                if (container.clientWidth < requiredWidth) return;
+
+                const secondary = table.cloneNode(false);
+                secondary.classList.add("laddapp-schedule-table-secondary");
+                secondary.setAttribute("aria-label", "Fortsättning på laddintervall");
+
+                const secondaryHead = table.tHead.cloneNode(true);
+                secondaryHead.querySelectorAll("input").forEach(input => input.remove());
+                secondary.append(secondaryHead, document.createElement("tbody"));
+
+                const secondHalfStartsAt = Math.ceil(allRows.length / 2);
+                allRows.forEach((row, index) => {
+                  if (index >= secondHalfStartsAt) secondary.tBodies[0].append(row);
+                });
+
+                container.append(secondary);
+                container.classList.add("is-split");
+              }
+
+              new ResizeObserver(updateLayout).observe(container);
+              updateLayout();
+            }
+
+            arrangeScheduleTables();
+
+            async function updateChargeTargetTime(form) {
+              const response = await fetch(form.action, {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: new URLSearchParams(new FormData(form))
+              });
+
+              if (response.ok) {
+                await refreshChargePage();
+              }
+            }
+          </script>
+        </section>
+  - name: main_content
+    html:
+      template: |
+        <main
+          class="laddapp-page"
+          layout="
+            rows;
+            gap: 1.5rem;
+            max-width: 70rem;
+            margin: auto
+          ">
+
+          {{html .activity.overview.value}}
+          {{html .activity.charge_plan.value}}
+          {{html .activity.schedule.value}}
+        </main>
+  - name: page
+    html:
+      template: |
+        <!doctype html>
+
+        <html lang="sv">
+          <head>
+            <meta charset="utf-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1.0">
+
+            <title>Laddning</title>
+
+            <link
+              rel="stylesheet"
+              href="/assets/static/mate-layout.css?v=20260731-2">
+
+          </head>
+
+          <body>
+            {{html .activity.main_content.value}}
+          </body>
+        </html>
+coordinators:
+  routes:
+  - name: index_page
+    path: "/index"
+    method: GET
+    authorization: {mode: public}
+    portal: Laddning
+    producers:
+    - index_page
+  - name: set_target
+    path: "/target"
+    method: POST
+    authorization: {mode: public}
+    producers:
+    - set_target
+#    - planner
+  - name: set_target_time
+    path: "/target-time"
+    method: POST
+    authorization: {mode: public}
+    producers:
+    - set_target_time
+#    - planner

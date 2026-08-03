@@ -1,0 +1,76 @@
+model:
+  name: starter
+coordinators:
+  schedules:
+  - name: hourly_test
+    cron: 0 * * * *
+    producers: []
+  routes:
+  - name: test_page
+    method: GET
+    path: "/test"
+    authorization: {mode: public}
+    producers:
+    - test_page
+  - name: test_run
+    method: GET
+    path: "/test/run"
+    authorization: {mode: public}
+    producers:
+    - test_run
+producers:
+- name: test_page
+  activities:
+  - name: page
+    html:
+      template: |
+        <!doctype html>
+        <html lang="en">
+          <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>Mate model test</title>
+              <link rel="stylesheet" href="/assets/static/mate-layout.css">
+            </head>
+            <body>
+              <main width="content" layout="stack" gap="large" style="padding-block: 2rem">
+                <section class="panel" layout="stack">
+                  <h1>Model test</h1>
+                  <p class="muted">Run the test route and inspect the returned value with value explorer.</p>
+                  <form method="get" action="/starter/test/run" target="test-result" layout="stack">
+                    <label>Foo <input name="foo" value="dummy1"></label>
+                    <label>Bar <input name="bar" value="dummy2"></label>
+                    <div class="action-row">
+                      <button class="primary" type="submit">Run test route</button>
+                    </div>
+                  </form>
+                </section>
+                <iframe class="operation-output" name="test-result" title="Test result" style="width: 100%; min-height: 18rem"></iframe>
+              </main>
+            </body>
+          </html>
+- name: test_run
+  activities:
+  - name: result
+    compose: |
+      root.foo = caller.params.foo
+      root.bar = caller.params.bar
+      root.params = caller.params
+  - name: page
+    html:
+      template: |
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Mate model test result</title>
+            <link rel="stylesheet" href="/assets/static/mate-layout.css">
+          </head>
+          <body>
+            <main layout="stack" gap="medium" style="padding: 1rem">
+              <h1>Result</h1>
+              <div class="operation-output">{{ value_explorer .activity.result.value }}</div>
+            </main>
+          </body>
+        </html>

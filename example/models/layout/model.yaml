@@ -1,0 +1,283 @@
+model:
+  name: layout-demo
+producers:
+- name: layout_demo_home
+  activities:
+  - name: view_model
+    compose: |
+      root = {
+        "title": "Charging",
+        "status": "Charging active",
+        "metrics": [
+          {"label": "Battery", "value": "72 %"},
+          {"label": "Finish", "value": "14:45"},
+          {"label": "Price", "value": "0.42 kr"}
+        ],
+        "prices": [
+          {"time": "13:00", "price": "0.42 kr/kWh", "selected": "Yes"},
+          {"time": "13:15", "price": "0.38 kr/kWh", "selected": "Yes"},
+          {"time": "13:30", "price": "0.61 kr/kWh", "selected": "No"}
+        ]
+      }
+  - name: header
+    html:
+      value: "=activity.view_model.value"
+      template: |
+        <header class="page-header">
+          <div width="wide" layout="cluster" distribute="between">
+            <div>
+              <strong>{{ .title }}</strong>
+              <span class="muted">Mate layout demo</span>
+            </div>
+            <nav layout="cluster" gap="small">
+              <a href="#overview">Overview</a>
+              <a href="#prices">Prices</a>
+              <a href="#settings">Settings</a>
+            </nav>
+          </div>
+        </header>
+  - name: overview
+    html:
+      value: "=activity.view_model.value"
+      template: |
+        <article layout="stack">
+          <section class="panel">
+            <h1>{{ .title }}</h1>
+            <p>Server-rendered HTML fragments composed by Mate activities.</p>
+            <span class="status success">{{ .status }}</span>
+          </section>
+          <section layout="grid" columns="3">
+            {{ range .metrics }}
+              <article class="panel">
+                <h2>{{ .value }}</h2>
+                <p class="muted">{{ .label }}</p>
+              </article>
+            {{ end }}
+          </section>
+        </article>
+  - name: controls
+    html:
+      template: |
+        <aside class="panel" layout="stack">
+          <h2>Controls</h2>
+          <button class="primary">Start</button>
+          <button>Stop</button>
+          <button>Pause</button>
+        </aside>
+  - name: prices
+    html:
+      value: "=activity.view_model.value.prices"
+      template: |
+        <section id="prices" class="panel" layout="stack">
+          <div layout="cluster" distribute="between">
+            <div>
+              <h2>Upcoming intervals</h2>
+              <p class="muted">Rendered from an ordered collection.</p>
+            </div>
+            <a class="button" href="/">Refresh</a>
+          </div>
+          <div style="overflow-x: auto">
+            <table>
+              <thead>
+                <tr><th>Time</th><th>Price</th><th>Selected</th></tr>
+              </thead>
+              <tbody>
+                {{ range . }}
+                  <tr><td>{{ .time }}</td><td>{{ .price }}</td><td>{{ .selected }}</td></tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        </section>
+  - name: settings
+    html:
+      template: |
+        <section id="settings" layout="row" ratio="2-1">
+          <form class="panel" layout="stack">
+            <h2>Settings</h2>
+            <div layout="grid" columns="2">
+              <label>Minimum level <input type="number" name="min" value="32"></label>
+              <label>Target level <input type="number" name="target" value="80"></label>
+            </div>
+            <label>Profile
+              <select name="profile">
+                <option>production</option>
+                <option>simulation</option>
+              </select>
+            </label>
+            <div layout="cluster" distribute="end">
+              <button>Reset</button>
+              <button class="primary">Save</button>
+            </div>
+          </form>
+          <aside class="panel">
+            <h2>Responsive</h2>
+            <p>This side content collapses below the form on narrow screens.</p>
+          </aside>
+        </section>
+  - name: page
+    html:
+      template: |
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Layout Demo</title>
+            <link rel="stylesheet" href="/assets/static/mate-layout.css">
+          </head>
+          <body layout="stack" gap="none">
+            {{ html .activity.header.value }}
+            <main width="wide" layout="stack" gap="large" style="padding-block: 2rem">
+              <section id="overview" layout="main-side" ratio="3-1">
+                {{ html .activity.overview.value }}
+                {{ html .activity.controls.value }}
+              </section>
+              {{ html .activity.prices.value }}
+              {{ html .activity.settings.value }}
+            </main>
+            <footer class="page-footer">
+              <div width="wide">Mate layout demo</div>
+            </footer>
+            </body>
+          </html>
+- name: layout_demo_primitives
+  activities:
+  - name: view_model
+    compose: |
+      root = {
+        "title": "Mate primitives",
+        "items": [
+          {"name": "Layout CSS", "state": "Ready", "kind": "success"},
+          {"name": "Operation block", "state": "Queued", "kind": "warning"},
+          {"name": "Studio refactor", "state": "Later", "kind": "primary"}
+        ],
+        "events": [
+          {"time": "09:00", "event": "Reload requested", "status": "ok"},
+          {"time": "09:01", "event": "Validation passed", "status": "ok"},
+          {"time": "09:03", "event": "Restart pending", "status": "pending"}
+        ]
+      }
+  - name: view
+    html:
+      value: "=activity.view_model.value"
+      template: |
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Mate Primitives Demo</title>
+            <link rel="stylesheet" href="/assets/static/mate-layout.css">
+          </head>
+          <body>
+            <header class="page-header">
+              <div width="wide" class="toolbar">
+                <div>
+                  <h1>{{ .title }}</h1>
+                  <p class="muted">Reusable UI primitives layered on the layout base.</p>
+                </div>
+                <nav layout="cluster" gap="small">
+                  <a class="button subtle" href="/">Layout demo</a>
+                  <a class="button primary" href="/primitives">Primitives</a>
+                </nav>
+              </div>
+            </header>
+
+            <main width="wide" layout="stack" gap="large" style="padding-block: 2rem">
+              <section class="alert info">
+                <strong>Neutral base</strong>
+                <p>`mate-layout` owns general controls, spacing and layout while app CSS can focus on domain-specific detail.</p>
+              </section>
+
+              <section layout="grid" columns="3">
+                {{ range .items }}
+                  <article class="card" layout="stack" gap="small">
+                    <div class="toolbar">
+                      <strong>{{ .name }}</strong>
+                      <span class="badge {{ .kind }}">{{ .state }}</span>
+                    </div>
+                    <p class="muted">A compact card using shared panel, badge and toolbar styling.</p>
+                  </article>
+                {{ end }}
+              </section>
+
+              <section class="panel" layout="stack">
+                <div class="toolbar">
+                  <div>
+                    <h2>Actions</h2>
+                    <p class="muted">Button variants and action-row alignment.</p>
+                  </div>
+                  <div class="action-row">
+                    <button class="subtle" type="button">Cancel</button>
+                    <button type="button">Preview</button>
+                    <button class="primary" type="button">Save</button>
+                    <button class="danger" type="button">Delete</button>
+                  </div>
+                </div>
+              </section>
+
+              <section layout="main-side" ratio="2-1">
+                <form class="panel" layout="stack">
+                  <h2>Form primitives</h2>
+                  <div layout="grid" columns="2">
+                    <label>Name <input name="name" value="studio"></label>
+                    <label>Mode
+                      <select name="mode">
+                        <option>simulation</option>
+                        <option>production</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label>Notes <textarea name="notes">Reusable layout primitives.</textarea></label>
+                  <div class="action-row">
+                    <button type="reset">Reset</button>
+                    <button class="primary" type="submit">Submit</button>
+                  </div>
+                </form>
+
+                <aside class="panel operation-block">
+                  <div class="operation-actions">
+                    <form method="get" action="/primitives" target="operation-result">
+                      <button type="submit">Reload</button>
+                    </form>
+                    <form method="get" action="/primitives" target="operation-result">
+                      <button type="submit">Restart</button>
+                    </form>
+                  </div>
+                  <iframe class="operation-output" name="operation-result" title="Operation result"></iframe>
+                </aside>
+              </section>
+
+              <section class="panel" layout="stack">
+                <h2>Table baseline</h2>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>Time</th><th>Event</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {{ range .events }}
+                        <tr><td>{{ .time }}</td><td>{{ .event }}</td><td><span class="badge">{{ .status }}</span></td></tr>
+                      {{ end }}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </main>
+          </body>
+        </html>
+coordinators:
+  routes:
+  - name: home
+    method: GET
+    path: "/"
+    authorization: {mode: public}
+    producers:
+    - layout_demo_home
+  - name: primitives
+    method: GET
+    path: "/primitives"
+    authorization: {mode: public}
+    producers:
+    - layout_demo_primitives

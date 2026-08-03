@@ -1,0 +1,163 @@
+model:
+  name: portal
+producers:
+- name: portal_index
+  activities:
+  - name: view
+    html:
+      template: |
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta
+        name="viewport" content="width=device-width, initial-scale=1"><title>Mate
+        Portal</title><link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><link rel="stylesheet"
+        href="/portal/static/portal.css?v=20260801-1"></head><body><div class="portal-shell">
+        {{ $authentication_enabled := false }}{{ range .config.portal }}{{ if eq .model "users" }}{{ $authentication_enabled = true }}{{ end }}{{ end }}
+        <aside class="portal-nav"><div class="portal-brand"><a href="/portal">Mate</a></div><button class="portal-session-button" type="button" data-portal-path="/users/login"{{ if not $authentication_enabled }} hidden{{ end }}>Sign in</button><nav>
+        {{range .config.portal}}<section class="portal-group"><h2>{{.model}}</h2>
+        {{range .links}}<a href="{{.path}}" data-portal-path="{{.path}}">{{.text}}</a>{{end}}
+        </section>{{end}}</nav></aside>
+        <iframe class="portal-content" name="portal-content" title="Portal content"
+        srcdoc="<!doctype html><html><body><main style='font-family:system-ui;padding:28px'><h1>Mate Portal</h1><p>Select a model view from the navigation.</p></main></body></html>"></iframe>
+        </div><script>
+        (() => {
+          const frame = document.querySelector('.portal-content');
+          const sessionButton = document.querySelector('.portal-session-button');
+          let sessionCsrfToken = null;
+          const setSignedIn = signedIn => {
+            sessionButton.textContent = signedIn ? 'Sign out' : 'Sign in';
+            sessionButton.dataset.portalPath = signedIn ? '/users/logout' : '/users/login';
+            if (!signedIn) sessionCsrfToken = null;
+          };
+          const refreshSessionButton = async () => {
+            try {
+              const response = await fetch('/users/logout', {credentials: 'same-origin'});
+              sessionCsrfToken = response.headers.get('X-CSRF-Token');
+              setSignedIn(response.ok && !!sessionCsrfToken);
+            } catch (_) {
+              setSignedIn(false);
+            }
+          };
+          const show = async request => {
+            const response = await fetch(request, {credentials: 'same-origin'});
+            frame.dataset.portalSource = response.url;
+            if (response.status === 401) {
+              setSignedIn(false);
+              frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"></head><body><main style="font-family:system-ui;padding:28px"><h1>You are not signed in</h1><p>Sign in to view this page.</p><p><button type="button" data-portal-path="/users/login" style="font-size:1.05rem;font-weight:700;padding:12px 22px">Sign in</button></p></main></body></html>';
+              return;
+            }
+            if (response.status === 403) {
+              setSignedIn(true);
+              const denied = await response.clone().json().catch(() => ({}));
+              if (denied.error === 'csrf_rejected') {
+                frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"></head><body><main style="font-family:system-ui;padding:28px"><h1>The request could not be verified</h1><p>Reload the page and try again.</p></main></body></html>';
+                return;
+              }
+              frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"></head><body><main style="font-family:system-ui;padding:28px"><h1>This account cannot use this service</h1><p>Your username and password were correct and you are signed in.</p><p>This user has not been assigned any of the roles required for this service. Ask an administrator to assign an appropriate role to your account.</p></main></body></html>';
+              return;
+            }
+            if (!response.ok) {
+              frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"></head><body><main style="font-family:system-ui;padding:28px"><h1>Unable to load view</h1><p>The requested page could not be loaded.</p></main></body></html>';
+              return;
+            }
+            const method = request instanceof Request ? request.method.toUpperCase() : 'GET';
+            if (method === 'GET') {
+              frame.removeAttribute('srcdoc');
+              frame.src = response.url;
+              return;
+            }
+            frame.srcdoc = await response.text();
+          };
+          frame.addEventListener('load', () => {
+            const document = frame.contentDocument;
+            if (!document) return;
+            document.addEventListener('click', event => {
+              const link = event.target.closest('a[href], [data-portal-path]');
+              if (!link || link.target === '_top') return;
+              const destination = link.dataset.portalPath || link.href;
+              if (new URL(destination, location.origin).origin !== location.origin) return;
+              event.preventDefault();
+              show(destination).catch(() => {});
+            });
+            document.addEventListener('submit', event => {
+              const form = event.target;
+              if (event.defaultPrevented || form.target === '_top') return;
+              event.preventDefault();
+              const submitter = event.submitter;
+              const action = new URL(submitter?.getAttribute('formaction') || form.getAttribute('action') || location.pathname, location.origin);
+              const method = (submitter?.formMethod || form.method || 'GET').toUpperCase();
+              const data = new URLSearchParams(new FormData(form));
+              if (method === 'GET') {
+                action.search = data.toString();
+                show(new Request(action, {method})).catch(() => {
+                  frame.srcdoc = '<!doctype html><html><body><main><h1>Unable to submit form</h1><p>The request could not be sent.</p></main></body></html>';
+                });
+                return;
+              }
+              show(new Request(action, {
+                method,
+                headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+                body: data
+              })).catch(() => {
+                frame.srcdoc = '<!doctype html><html><body><main><h1>Unable to submit form</h1><p>The request could not be sent.</p></main></body></html>';
+              });
+            });
+          });
+          document.querySelectorAll('.portal-nav [data-portal-path]').forEach(control => {
+            control.addEventListener('click', async event => {
+              event.preventDefault();
+              if (control.dataset.portalPath === '/users/logout') {
+                try {
+                  const response = await fetch('/_auth/logout', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-CSRF-Token': sessionCsrfToken || ''
+                    },
+                    body: '{}'
+                  });
+                  if (!response.ok) throw new Error('logout failed');
+                  window.location.href = '/portal';
+                } catch (_) {
+                  sessionButton.textContent = 'Sign out failed';
+                }
+                return;
+              }
+              try {
+                await show(control.dataset.portalPath);
+              } catch (_) {
+                frame.srcdoc = '<!doctype html><html><body><main><h1>Unable to load view</h1></main></body></html>';
+              }
+            });
+          });
+          refreshSessionButton();
+        })();
+        </script></body></html>
+- name: portal_language_reference
+  activities:
+  - name: view
+    html:
+      template: |
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MakeMate Language Reference</title><link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><style>.document-shell{max-width:72rem;margin:auto;padding:1.75rem}.markdown-doc{margin-top:1rem}.markdown-doc pre{overflow:auto}.markdown-doc table{display:block;overflow:auto}</style></head><body>
+        <main class="document-shell"><header><p class="muted">Portal documentation</p><h1>Language Reference</h1></header>
+        {{ $doc := markdown_doc "docs/yaml-language.md" }}
+        {{ if $doc.OK }}
+          <article class="panel markdown-doc">{{ $doc.HTML }}</article>
+        {{ else }}
+          <section class="alert info"><h2>Document unavailable</h2><p>{{ $doc.Error }}</p></section>
+        {{ end }}
+        </main></body></html>
+coordinators:
+  routes:
+  - name: portal_index
+    method: GET
+    path: "/"
+    authorization: {mode: public}
+    producers:
+    - portal_index
+  - name: portal_language_reference
+    method: GET
+    path: "/language-reference"
+    authorization: {mode: public}
+    portal: Language Reference
+    producers:
+    - portal_language_reference

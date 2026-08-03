@@ -1,0 +1,441 @@
+model:
+  name: users
+  env:
+    MATE_ADMIN_USERNAME:
+      default: ""
+    MATE_ADMIN_PASSWORD:
+      default: ""
+
+coordinators:
+  bootstrap:
+  - name: users_initialize
+    producers: [users_initialize]
+  routes:
+  - name: users_login
+    method: GET
+    path: "/login"
+    authorization: {mode: public}
+    producers: [users_login_page]
+  - name: users_logout
+    method: GET
+    path: "/logout"
+    authorization: {mode: authenticated}
+    producers: [users_logout_page]
+  - name: users_admin
+    method: GET
+    path: "/"
+    authorization: {mode: roles, any_of: [admin]}
+    portal: Users
+    producers: [users_admin_page]
+  - name: users_admin_create
+    method: POST
+    path: "/create"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [users_admin_create, users_admin_page]
+  - name: users_admin_status
+    method: POST
+    path: "/status"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [users_admin_status, users_admin_page]
+  - name: users_admin_roles
+    method: POST
+    path: "/roles"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [users_admin_roles, users_admin_page]
+  - name: users_admin_password
+    method: POST
+    path: "/password"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [users_admin_password, users_admin_page]
+  - name: services_admin_create
+    method: POST
+    path: "/services/create"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [services_admin_create, users_admin_page]
+  - name: services_admin_status
+    method: POST
+    path: "/services/status"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [services_admin_status, users_admin_page]
+  - name: services_admin_roles
+    method: POST
+    path: "/services/roles"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [services_admin_roles, users_admin_page]
+  - name: tokens_admin_create
+    method: POST
+    path: "/tokens/create"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [tokens_admin_create, users_admin_page]
+  - name: tokens_admin_revoke
+    method: POST
+    path: "/tokens/revoke"
+    authorization: {mode: roles, any_of: [admin]}
+    producers: [tokens_admin_revoke, users_admin_page]
+
+producers:
+- name: users_login_page
+  activities:
+  - name: view
+    html:
+      template: |
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in</title><link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><link rel="stylesheet" href="/studio/static/studio.css?v=013c9"></head><body><main style="max-width:32rem;margin:auto;padding:28px"><section class="panel"><h1>Sign in</h1><form method="post" action="/_auth/login" target="_top" layout="stack"><input type="hidden" name="return_to" value="/portal"><label>Username<input name="username" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="primary" type="submit">Sign in</button></form></section></main></body></html>
+
+- name: users_logout_page
+  activities:
+  - name: view
+    html:
+      template: |
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signing out</title></head><body><main style="font-family:system-ui;padding:28px"><p>Signing out…</p></main><script>(async()=>{const body=new URLSearchParams({csrf_token:{{ printf "%q" .caller.security.csrf_token }}});try{await fetch('/_auth/logout',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body,credentials:'same-origin'});}finally{window.top.location.href='/portal';}})();</script></body></html>
+
+- name: users_initialize
+  activities:
+  - name: schema
+    sql:
+      query: |
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          display_name TEXT NOT NULL DEFAULT '',
+          password_hash TEXT NOT NULL,
+          enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+          roles TEXT NOT NULL,
+          credential_version INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+          session_id_hash TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          username TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          roles TEXT NOT NULL,
+          credential_version INTEGER NOT NULL,
+          authenticated_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          idle_expires_at TEXT NOT NULL,
+          absolute_expires_at TEXT NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
+        CREATE TABLE IF NOT EXISTS service_accounts (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          description TEXT NOT NULL DEFAULT '',
+          enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+          roles TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bearer_tokens (
+          id TEXT PRIMARY KEY,
+          principal_kind TEXT NOT NULL CHECK (principal_kind IN ('user','service')),
+          principal_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          lookup_id TEXT NOT NULL UNIQUE,
+          secret_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          expires_at TEXT,
+          last_used_at TEXT,
+          revoked_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS bearer_tokens_owner ON bearer_tokens(principal_kind,principal_id);
+  - name: users
+    sql:
+      query: SELECT COUNT(*) AS count FROM users
+  - name: bootstrap
+    branch:
+      when: =activity.users.value.index(0).count == 0
+      then:
+      - name: values
+        compose: |
+          let username = env.MATE_ADMIN_USERNAME.trim().lowercase()
+          root.username = $username
+          root.valid_username = $username.length() >= 1 && $username.length() <= 64 && $username.re_match("^[a-z0-9._-]+$")
+          root.valid_password = env.MATE_ADMIN_PASSWORD.length() >= 15 && env.MATE_ADMIN_PASSWORD.length() <= 1024
+      - name: validate
+        compose: |
+          root = if activity.values.value.valid_username && activity.values.value.valid_password {
+            true
+          } else {
+            throw("users bootstrap requires valid MATE_ADMIN_USERNAME and MATE_ADMIN_PASSWORD")
+          }
+      - name: password
+        compose: root = password_hash(env.MATE_ADMIN_PASSWORD)
+      - name: create
+        sql:
+          query: |
+            INSERT INTO users(id,username,display_name,password_hash,enabled,roles,credential_version,created_at,updated_at)
+            VALUES(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1,1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), ?, '', ?, 1, '["admin"]', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+          args:
+          - =activity.values.value.username
+          - =activity.password.value
+      - name: result
+        compose: root = true
+      else:
+      - name: result
+        compose: root = false
+
+- name: authenticate
+  activities:
+  - name: input
+    compose: root.username = params.username.trim().lowercase()
+  - name: user
+    sql:
+      query: SELECT id,username,display_name,password_hash,enabled,roles,credential_version FROM users WHERE username=?
+      args: [=activity.input.value.username]
+  - name: outcome
+    branch:
+      when: =activity.user.value.length() == 1 && activity.user.value.index(0).enabled == 1
+      then:
+      - name: verified
+        compose: root = password_verify(params.password, activity.user.value.index(0).password_hash)
+      - name: result
+        branch:
+          when: =activity.verified.value
+          then:
+          - name: success
+            compose: |
+              root.user_id = activity.user.value.index(0).id
+              root.username = activity.user.value.index(0).username
+              root.display_name = activity.user.value.index(0).display_name
+              root.roles = activity.user.value.index(0).roles.parse_json()
+              root.credential_version = activity.user.value.index(0).credential_version
+          else:
+          - name: failure
+            compose: root = "invalid_credentials"
+      else:
+      - name: failure
+        compose: root = "invalid_credentials"
+
+- name: session_create
+  activities:
+  - name: token
+    compose: |
+      let external = secure_token(32)
+      root.external = $external
+      root.hash = sha256($external)
+      root.roles = params.roles.format_json()
+  - name: insert
+    sql:
+      query: |
+        INSERT INTO sessions(session_id_hash,user_id,username,display_name,roles,credential_version,authenticated_at,last_seen_at,idle_expires_at,absolute_expires_at)
+        SELECT ?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+30 minutes'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+12 hours')
+        FROM users WHERE id=? AND enabled=1 AND credential_version=?
+        RETURNING authenticated_at AS created_at,idle_expires_at,absolute_expires_at
+      args:
+      - =activity.token.value.hash
+      - =params.user_id
+      - =params.username
+      - =params.display_name
+      - =activity.token.value.roles
+      - =params.credential_version
+      - =params.user_id
+      - =params.credential_version
+  - name: result
+    compose: |
+      root = if activity.insert.value.length() == 1 {
+        {
+          "session_id": activity.token.value.external,
+          "created_at": activity.insert.value.index(0).created_at,
+          "idle_expires_at": activity.insert.value.index(0).idle_expires_at,
+          "absolute_expires_at": activity.insert.value.index(0).absolute_expires_at
+        }
+      } else {
+        "user_unavailable"
+      }
+
+- name: session_validate
+  activities:
+  - name: input
+    compose: root.hash = sha256(params.session_id)
+  - name: validation
+    sql:
+      transaction:
+      - query: |
+          UPDATE sessions SET last_seen_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), idle_expires_at=min(strftime('%Y-%m-%dT%H:%M:%fZ','now','+30 minutes'),absolute_expires_at)
+          WHERE session_id_hash=? AND idle_expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND absolute_expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            AND EXISTS (SELECT 1 FROM users WHERE users.id=sessions.user_id AND users.enabled=1 AND users.credential_version=sessions.credential_version)
+          RETURNING user_id,username,display_name,roles,authenticated_at,idle_expires_at,absolute_expires_at
+        args: [=activity.input.value.hash]
+      - query: |
+          SELECT CASE
+            WHEN s.session_id_hash IS NULL THEN 'invalid_session'
+            WHEN s.idle_expires_at<=strftime('%Y-%m-%dT%H:%M:%fZ','now') OR s.absolute_expires_at<=strftime('%Y-%m-%dT%H:%M:%fZ','now') THEN 'expired_session'
+            ELSE 'user_unavailable'
+          END AS failure
+          FROM (SELECT 1) x LEFT JOIN sessions s ON s.session_id_hash=? LEFT JOIN users u ON u.id=s.user_id
+        args: [=activity.input.value.hash]
+  - name: result
+    compose: |
+      let success = activity.validation.value.index(0)
+      root = if $success.length() == 1 {
+        {
+          "user_id": $success.index(0).user_id,
+          "username": $success.index(0).username,
+          "display_name": $success.index(0).display_name,
+          "roles": $success.index(0).roles.parse_json(),
+          "authenticated_at": $success.index(0).authenticated_at,
+          "idle_expires_at": $success.index(0).idle_expires_at,
+          "absolute_expires_at": $success.index(0).absolute_expires_at
+        }
+      } else {
+        activity.validation.value.index(1).index(0).failure
+      }
+
+- name: session_delete
+  activities:
+  - name: input
+    compose: root.hash = sha256(params.session_id)
+  - name: delete
+    sql:
+      query: DELETE FROM sessions WHERE session_id_hash=? RETURNING session_id_hash
+      args: [=activity.input.value.hash]
+  - name: result
+    compose: root.deleted = activity.delete.value.length() == 1
+
+- name: users_admin_page
+  activities:
+  - name: users
+    sql:
+      query: SELECT id,username,display_name,enabled,roles,credential_version,created_at,updated_at FROM users ORDER BY username
+  - name: view_model
+    compose: |
+      root = activity.users.value.map_each(user -> user.assign({"roles_text": user.roles.parse_json().join(",")}))
+  - name: services
+    sql:
+      query: SELECT id,name,description,enabled,roles,created_at,updated_at FROM service_accounts ORDER BY name
+  - name: service_view_model
+    compose: |
+      root = activity.services.value.map_each(service -> service.assign({"roles_text": service.roles.parse_json().join(",")}))
+  - name: tokens
+    sql:
+      query: SELECT id,principal_kind,principal_id,name,created_at,expires_at,last_used_at,CASE WHEN revoked_at IS NOT NULL THEN 'revoked' WHEN expires_at IS NOT NULL AND expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now') THEN 'expired' ELSE 'active' END AS status FROM bearer_tokens ORDER BY created_at DESC
+  - name: view
+    html:
+      template: |
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mate Users</title><link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><link rel="stylesheet" href="/studio/static/studio.css?v=013c9"><style>
+        .users-shell{max-width:1100px;margin:auto;padding:28px}.user-card{margin:18px 0}.user-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.inline{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.inline label{display:grid;gap:4px}.danger{color:#b91c1c}@media(max-width:760px){.user-grid{grid-template-columns:1fr}}
+        </style></head><body><main class="users-shell"><header><p class="muted">System model</p><h1>Users</h1><p class="muted">Manage users, service accounts, roles, sessions and tokens. The runtime principal is read-only and owns only the immutable <code>runtime-internal</code> role.</p><form method="post" action="/_auth/logout" target="_top"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><button type="submit">Sign out</button></form></header>
+        {{ with .activity.token_issue.value }}<section class="panel"><h2>Copy bearer token now</h2><p>This secret is shown once and cannot be recovered.</p><code>{{ .token }}</code></section>{{ end }}
+        <section class="panel"><h2>Create user</h2><form class="inline" method="post" action="/users/create"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><label>Username<input name="username" required maxlength="64" pattern="[A-Za-z0-9._-]+"></label><label>Display name<input name="display_name" maxlength="200"></label><label>Roles<input name="roles" placeholder="operator,admin"></label><label>Password<input name="password" type="password" minlength="15" maxlength="1024" required></label><button class="primary" type="submit">Create</button></form></section>
+        {{ range .activity.view_model.value }}<article class="panel user-card"><header layout="cluster"><h2>{{ .username }}</h2>{{ if eq .enabled 1 }}<span class="badge">Enabled</span>{{ else }}<span class="badge danger">Disabled</span>{{ end }}<span class="muted">{{ .display_name }}</span></header><div class="user-grid">
+        <form class="inline" method="post" action="/users/roles"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="user_id" value="{{ .id }}"><label>Roles<input name="roles" value="{{ .roles_text }}"></label><button type="submit">Save roles</button></form>
+        <form class="inline" method="post" action="/users/status"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="user_id" value="{{ .id }}"><input type="hidden" name="enabled" value="{{ if eq .enabled 1 }}0{{ else }}1{{ end }}"><button type="submit">{{ if eq .enabled 1 }}Disable{{ else }}Enable{{ end }}</button></form>
+        <form class="inline" method="post" action="/users/password"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="user_id" value="{{ .id }}"><label>New password<input name="password" type="password" minlength="15" maxlength="1024" required></label><button type="submit">Reset password</button></form><form class="inline" method="post" action="/users/tokens/create"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="principal_kind" value="user"><input type="hidden" name="principal_id" value="{{ .id }}"><input name="token_name" required placeholder="Personal token name"><input name="expires_at" placeholder="RFC3339 expiration (optional)"><button>Create personal token</button></form>
+        <div class="muted">Credential version {{ .credential_version }}<br>Created {{ .created_at }}<br>Updated {{ .updated_at }}</div></div></article>{{ end }}
+        <section class="panel"><h2>Service accounts</h2><form class="inline" method="post" action="/users/services/create"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><label>Name<input name="name" required pattern="[A-Za-z0-9._-]+"></label><label>Description<input name="description"></label><label>Roles<input name="roles"></label><button class="primary">Create service account</button></form></section>
+        {{ range .activity.service_view_model.value }}<article class="panel"><h3>{{ .name }}</h3><p>{{ .description }}</p><form class="inline" method="post" action="/users/services/roles"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="service_id" value="{{ .id }}"><input name="roles" value="{{ .roles_text }}"><button>Save roles</button></form><form method="post" action="/users/services/status"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="service_id" value="{{ .id }}"><input type="hidden" name="enabled" value="{{ if eq .enabled 1 }}0{{ else }}1{{ end }}"><button>{{ if eq .enabled 1 }}Disable{{ else }}Enable{{ end }}</button></form><form class="inline" method="post" action="/users/tokens/create"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="principal_kind" value="service"><input type="hidden" name="principal_id" value="{{ .id }}"><input name="token_name" required placeholder="Token name"><input name="expires_at" placeholder="RFC3339 expiration (optional)"><button>Create token</button></form></article>{{ end }}
+        <section class="panel"><h2>Bearer tokens</h2><p>Bearer tokens are password-equivalent secrets. Plaintext is shown only once.</p>{{ range .activity.tokens.value }}<div><strong>{{ .name }}</strong> — {{ .principal_kind }} {{ .principal_id }} — {{ .status }} — created {{ .created_at }}{{ if .expires_at }} — expires {{ .expires_at }}{{ end }}<form method="post" action="/users/tokens/revoke"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="token_id" value="{{ .id }}"><button>Revoke</button></form></div>{{ end }}</section>
+        </main></body></html>
+
+- name: users_admin_create
+  activities:
+  - name: input
+    compose: |
+      let username = params.username.trim().lowercase()
+      let roles = params.roles.split(",").map_each(role -> role.trim()).filter(role -> role != "")
+      root = if $username.length() >= 1 && $username.length() <= 64 && $username.re_match("^[a-z0-9._-]+$") && params.password.length() >= 15 && params.password.length() <= 1024 && $roles.filter(role -> !role.re_match("^[a-z0-9_-]{1,64}$")).length() == 0 {
+        {"username": $username, "roles": $roles.format_json()}
+      } else { throw("invalid user details") }
+  - name: password
+    compose: root = password_hash(params.password)
+  - name: create
+    sql:
+      query: |
+        INSERT INTO users(id,username,display_name,password_hash,enabled,roles,credential_version,created_at,updated_at)
+        VALUES(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1,1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))),?,?,?,1,?,1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      args: [=activity.input.value.username, =params.display_name, =activity.password.value, =activity.input.value.roles]
+
+- name: users_admin_status
+  activities:
+  - name: validate
+    compose: root = if params.enabled == "0" || params.enabled == "1" { params.enabled.number() } else { throw("invalid account status") }
+  - name: update
+    sql:
+      transaction:
+      - query: UPDATE users SET enabled=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?
+        args: [=activity.validate.value, =params.user_id]
+      - query: DELETE FROM sessions WHERE user_id=? AND ?=0
+        args: [=params.user_id, =activity.validate.value]
+
+- name: users_admin_roles
+  activities:
+  - name: validate
+    compose: |
+      let roles = params.roles.split(",").map_each(role -> role.trim()).filter(role -> role != "")
+      root = if !$roles.contains("runtime-internal") && $roles.filter(role -> !role.re_match("^[a-z0-9_-]{1,64}$")).length() == 0 { $roles.format_json() } else { throw("invalid role") }
+  - name: update
+    sql:
+      query: UPDATE users SET roles=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?
+      args: [=activity.validate.value, =params.user_id]
+
+- name: users_admin_password
+  activities:
+  - name: validate
+    compose: root = if params.password.length() >= 15 && params.password.length() <= 1024 { params.password } else { throw("invalid password") }
+  - name: password
+    compose: root = password_hash(activity.validate.value)
+  - name: update
+    sql:
+      transaction:
+      - query: UPDATE users SET password_hash=?,credential_version=credential_version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?
+        args: [=activity.password.value, =params.user_id]
+      - query: DELETE FROM sessions WHERE user_id=?
+        args: [=params.user_id]
+
+- name: services_admin_create
+  activities:
+  - name: input
+    compose: |
+      let name = params.name.trim().lowercase()
+      let roles = params.roles.split(",").map_each(role -> role.trim()).filter(role -> role != "")
+      root = if $name.re_match("^[a-z0-9._-]{1,64}$") && !$roles.contains("runtime-internal") && $roles.filter(role -> !role.re_match("^[a-z0-9_-]{1,64}$")).length() == 0 { {"name":$name,"roles":$roles.format_json()} } else { throw("invalid service account details") }
+  - name: create
+    sql:
+      query: INSERT INTO service_accounts(id,name,description,enabled,roles,created_at,updated_at) VALUES(lower(hex(randomblob(16))),?,?,1,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      args: [=activity.input.value.name, =params.description, =activity.input.value.roles]
+
+- name: services_admin_status
+  activities:
+  - name: validate
+    compose: root = if params.enabled == "0" || params.enabled == "1" { params.enabled.number() } else { throw("invalid account status") }
+  - name: update
+    sql:
+      query: UPDATE service_accounts SET enabled=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?
+      args: [=activity.validate.value, =params.service_id]
+
+- name: services_admin_roles
+  activities:
+  - name: validate
+    compose: |
+      let roles = params.roles.split(",").map_each(role -> role.trim()).filter(role -> role != "")
+      root = if !$roles.contains("runtime-internal") && $roles.filter(role -> !role.re_match("^[a-z0-9_-]{1,64}$")).length() == 0 { $roles.format_json() } else { throw("invalid role") }
+  - name: update
+    sql:
+      query: UPDATE service_accounts SET roles=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?
+      args: [=activity.validate.value, =params.service_id]
+
+- name: tokens_admin_create
+  activities:
+  - name: validate
+    compose: |
+      root = if (params.principal_kind == "user" || params.principal_kind == "service") && params.token_name.trim().length() > 0 && (params.expires_at == "" || params.expires_at.re_match("^\\d{4}-\\d\\d-\\d\\dT")) { true } else { throw("invalid token details") }
+  - name: lookup
+    compose: root = secure_token(16)
+  - name: secret
+    compose: root = secure_token(32)
+  - name: store
+    sql:
+      query: INSERT INTO bearer_tokens(id,principal_kind,principal_id,name,lookup_id,secret_hash,created_at,expires_at) VALUES(lower(hex(randomblob(16))),?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULLIF(?,''))
+      args: [=params.principal_kind, =params.principal_id, =params.token_name.trim(), =activity.lookup.value, =sha256(activity.secret.value), =params.expires_at]
+  - name: token_issue
+    compose: |
+      root = {"token":activity.lookup.value+"."+activity.secret.value}
+
+- name: tokens_admin_revoke
+  activities:
+  - name: revoke
+    sql:
+      query: UPDATE bearer_tokens SET revoked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND revoked_at IS NULL
+      args: [=params.token_id]

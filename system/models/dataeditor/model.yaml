@@ -1,0 +1,76 @@
+model:
+  name: dataeditor
+producers:
+- name: dataeditor_page
+  activities:
+  - name: models
+    compose: 'root = runtime_data_models()
+
+'
+  - name: selection
+    compose: |
+      let models = activity.models.value
+      let selected = if $models.contains(params.model) { params.model } else { $models.index(0) }
+      root = {"models": $models, "selected": $selected}
+  - name: state
+    compose: 'root = runtime_data_state(activity.selection.value.selected)
+
+'
+  - name: share
+    compose: 'root = runtime_data_share(activity.selection.value.selected)
+
+'
+  - name: view_model
+    compose: |
+      let state_entries = activity.state.value.sort_by(e -> e.key).map_each(e -> e.assign({"text": e.value.format_json("  ").string()}))
+      let share_entries = activity.share.value.sort_by(e -> e.key).map_each(e -> e.assign({"text": e.value.format_json("  ").string()}))
+      root = {"state_entries": $state_entries, "share_entries": $share_entries}
+  - name: view
+    html:
+      template: |
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mate Data Editor</title><link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2"><link rel="stylesheet" href="/studio/static/studio.css?v=013c9"><style>
+        .data-shell{max-width:1200px;margin:auto;padding:28px}.data-header{display:flex;align-items:center;justify-content:space-between;gap:20px}.model-selector{border:1px solid var(--mate-border,#cbd5e1);border-radius:var(--mate-radius,.65rem);background:var(--mate-surface,#fff);padding:1rem;margin:1rem 0}.model-selector h2{font-size:1rem;margin:0 0 .75rem}.model-selector-options{display:flex;flex-wrap:wrap;gap:.5rem}.model-selector .button{display:inline-flex;align-items:center;justify-content:center;padding:.55rem .9rem;border:1px solid var(--mate-border,#cbd5e1);border-radius:.45rem;background:var(--mate-surface,#fff);color:var(--mate-text,#172033);text-decoration:none}.model-selector .button.primary{border-color:var(--mate-accent,#b4532a);background:var(--mate-accent,#b4532a);color:#fff}.data-tabs{display:flex;gap:8px;margin:20px 0}.data-tabs button{border:1px solid #cbd5e1;background:white;padding:8px 16px;border-radius:7px;cursor:pointer}.data-tabs button.active{background:var(--mate-accent,#b4532a);color:white;border-color:var(--mate-accent,#b4532a)}.map-card{margin:18px 0;padding:20px}.map-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.entry-grid{display:grid;grid-template-columns:minmax(140px,1fr) 110px minmax(280px,3fr) auto;gap:10px;align-items:start;padding:12px 0;border-top:1px solid #e2e8f0}.data-key{align-items:center;display:flex;gap:8px}.data-key input{min-width:0;width:100%}.entry-grid textarea{width:100%;min-height:72px;font-family:monospace}.entry-value details{margin-bottom:10px}.entry-value summary{cursor:pointer;font-weight:600}.entry-value .value-box{margin-top:8px;max-height:320px;overflow:auto}.inline-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.new-entry{margin-top:14px;padding-top:14px;border-top:1px dashed #cbd5e1}.new-entry input,.new-entry textarea{min-width:180px}.danger{color:#b91c1c}.kind-panel[hidden]{display:none}@media(max-width:760px){.entry-grid{grid-template-columns:1fr}.data-header{align-items:flex-start;flex-direction:column}}
+        </style></head><body><main class="data-shell"><header class="data-header"><div><p class="muted">System model</p><h1>Data Editor</h1><p class="muted">Inspect and edit runtime state and shared data.</p></div></header>
+        <section class="panel model-selector" aria-label="Model selection"><h2>Model</h2><div class="model-selector-options">{{ range .activity.selection.value.models }}<a class="button{{ if eq . $.activity.selection.value.selected }} primary{{ end }}" href="/dataeditor?model={{ urlquery . }}">{{ . }}</a>{{ end }}</div></section>
+        <nav class="data-tabs" aria-label="Data store"><button type="button" class="active" data-kind="state">State</button><button type="button" data-kind="share">Share</button></nav>
+        <section class="kind-panel" data-panel="state"><form class="panel inline-form" method="post" action="/dataeditor/entry/set"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><input type="hidden" name="model" value="{{ .activity.selection.value.selected }}"><input type="hidden" name="kind" value="state"><strong>Add state value</strong><input name="key" placeholder="Key" required><textarea name="value" placeholder="JSON or text" required></textarea><button class="button primary" type="submit">Add value</button></form>
+        <article class="panel map-card">{{ if .activity.view_model.value.state_entries }}{{ range .activity.view_model.value.state_entries }}<form class="entry-grid" method="post" action="/dataeditor/entry/set"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="model" value="{{ $.activity.selection.value.selected }}"><input type="hidden" name="kind" value="state"><span class="data-key resource-state"><span class="boundary-resource-icon" aria-hidden="true" style="background:#edf0f3;color:#344054;">🗄</span><input name="key" value="{{ .key }}" readonly></span><span class="badge">{{ .type }}</span><div class="entry-value">{{ if or (eq .type "object") (eq .type "array") }}<details><summary>Current value</summary><div class="panel value-box">{{ value_explorer .value }}</div></details>{{ end }}<textarea name="value" required>{{ .text }}</textarea></div><span><button class="button primary" type="submit">Save</button><button class="button danger" type="submit" formaction="/dataeditor/entry/delete" onclick="return confirm('Delete {{ .key }}?')">Delete</button></span></form>{{ end }}{{ else }}<p class="alert info">No state values.</p>{{ end }}</article></section>
+        <section class="kind-panel" data-panel="share" hidden><form class="panel inline-form" method="post" action="/dataeditor/entry/set"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><input type="hidden" name="model" value="{{ .activity.selection.value.selected }}"><input type="hidden" name="kind" value="share"><strong>Add share value</strong><input name="key" placeholder="Key" required><textarea name="value" placeholder="JSON or text" required></textarea><button class="button primary" type="submit">Add value</button></form>
+        <article class="panel map-card">{{ if .activity.view_model.value.share_entries }}{{ range .activity.view_model.value.share_entries }}<form class="entry-grid" method="post" action="/dataeditor/entry/set"><input type="hidden" name="csrf_token" value="{{ $.caller.security.csrf_token }}"><input type="hidden" name="model" value="{{ $.activity.selection.value.selected }}"><input type="hidden" name="kind" value="share"><span class="data-key resource-share"><span class="boundary-resource-icon" aria-hidden="true" style="background:#dff2e5;color:#207a43;">🔄</span><input name="key" value="{{ .key }}" readonly></span><span class="badge">{{ .type }}</span><div class="entry-value">{{ if or (eq .type "object") (eq .type "array") }}<details><summary>Current value</summary><div class="panel value-box">{{ value_explorer .value }}</div></details>{{ end }}<textarea name="value" required>{{ .text }}</textarea></div><span><button class="button primary" type="submit">Save</button><button class="button danger" type="submit" formaction="/dataeditor/entry/delete" onclick="return confirm('Delete {{ .key }}?')">Delete</button></span></form>{{ end }}{{ else }}<p class="alert info">No share values.</p>{{ end }}</article></section>
+        </main><script>const tabs=[...document.querySelectorAll('[data-kind]')].filter(x=>x.tagName==='BUTTON');const panels=[...document.querySelectorAll('[data-panel]')];function select(kind){tabs.forEach(x=>x.classList.toggle('active',x.dataset.kind===kind));panels.forEach(x=>x.hidden=x.dataset.panel!==kind);history.replaceState(null,'','#'+kind)}tabs.forEach(x=>x.addEventListener('click',()=>select(x.dataset.kind)));const requestedKind={{ if .params.kind }}{{ printf "%q" .params.kind }}{{ else }}""{{ end }};select(requestedKind==='share'||location.hash==='#share'?'share':'state');</script></body></html>
+- name: dataeditor_set
+  activities:
+  - name: set
+    compose: |
+      let value = params.value.parse_json().catch(params.value)
+      root = runtime_data_set(params.model, params.kind, params.key, $value)
+- name: dataeditor_delete
+  activities:
+  - name: delete
+    compose: 'root = runtime_data_delete(params.model, params.kind, params.key)
+
+'
+coordinators:
+  routes:
+  - name: dataeditor_root
+    method: GET
+    path: "/"
+    authorization: {mode: optional}
+    remember: [model]
+    portal: Data Editor
+    producers:
+    - dataeditor_page
+  - name: dataeditor_set
+    method: POST
+    path: "/entry/set"
+    authorization: {mode: optional}
+    producers:
+    - dataeditor_set
+    - dataeditor_page
+  - name: dataeditor_delete
+    method: POST
+    path: "/entry/delete"
+    authorization: {mode: optional}
+    producers:
+    - dataeditor_delete
+    - dataeditor_page

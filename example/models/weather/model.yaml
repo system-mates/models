@@ -1,0 +1,166 @@
+
+model:
+  name: weather
+metrics:
+  authorization: {mode: public}
+
+coordinators:
+  schedules:
+  - name: collect
+    cron: "*/10 * * * *"
+    producers: [sample]
+  routes:
+  - name: index
+    path: /
+    producers: [index]
+    method: GET
+    authorization: {mode: public}
+    portal: Temperature Metrics Demo
+
+producers:
+- name:  sample
+  activities:
+  - name: cities
+    compose: |
+          root = [
+            {
+              "name": "Malmö",
+              "latitude": 55.60587,
+              "longitude": 13.00073
+            },
+            {
+              "name": "Göteborg",
+              "latitude": 57.70716,
+              "longitude": 11.96679
+            },
+            {
+              "name": "Stockholm",
+              "latitude": 59.32938,
+              "longitude": 18.06871
+            },
+            {
+              "name": "Östersund",
+              "latitude": 63.17920,
+              "longitude": 14.63566
+            },
+            {
+              "name": "Luleå",
+              "latitude": 65.58415,
+              "longitude": 22.15465
+            },
+            {
+              "name": "Kiruna",
+              "latitude": 67.85580,
+              "longitude": 20.22530
+            }
+          ]
+
+  - name: observation
+    iterate:
+      over: =activity.cities.value
+      activities:
+      - name: weather
+        io:
+          via: fetch
+          params:
+            return: json
+            url: '="https://api.open-meteo.com/v1/forecast?latitude="+item.latitude.string()+"&longitude="+item.longitude.string()+"&current=temperature_2m&timeformat=unixtime"'
+            options:
+              method: GET
+
+      - name: temp
+        metric:
+          timestamp: =activity.weather.value.current.time * 1000
+          property: =item.name
+          value: =activity.weather.value.current.temperature_2m
+
+
+- name:  index
+  activities:
+  - name: page
+    html:
+          template: |
+            <!doctype html>
+            <html lang="sv">
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Temperaturer i Sverige</title>
+
+                <style>
+                  body {
+                    margin: 0;
+                    padding: 2rem;
+                    font-family: system-ui, sans-serif;
+                    background: #f7f7f7;
+                    color: #202020;
+                  }
+
+                  main {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                  }
+
+                  h1 {
+                    margin-top: 0;
+                  }
+
+                  mate-graph {
+                    display: block;
+                    height: 620px;
+                    background: white;
+                    border: 1px solid #ddd;
+                    border-radius: 0.75rem;
+                  }
+                </style>
+              </head>
+
+              <body>
+                <main>
+                  <h1>Temperaturer i Sverige</h1>
+                    <mate-graph
+                      type="line"
+                      title="Temperaturer i Sverige"
+                      navigate="time"
+                      range="1d"
+                      refresh="5m"
+                      legend="show">
+
+                      <mate-metric-series model="weather"
+                        metric="temp"
+                        property="Malmö"
+                        label="Malmö">
+                      </mate-metric-series>
+                      <mate-metric-series model="weather"
+                        metric="temp"
+                        property="Göteborg"
+                        label="Göteborg">
+                      </mate-metric-series>
+                      <mate-metric-series model="weather"
+                        metric="temp"
+                        property="Stockholm"
+                        label="Stockholm">
+                      </mate-metric-series>
+                      <mate-metric-series model="weather"
+                        metric="temp"
+                        property="Östersund"
+                        label="Östersund">
+                      </mate-metric-series>
+                      <mate-metric-series model="weather"
+                        metric="temp"
+                        property="Luleå"
+                        label="Luleå">
+                      </mate-metric-series>
+                      <mate-metric-series model="weather"
+                        metric="temp"
+                        property="Kiruna"
+                        label="Kiruna">
+                      </mate-metric-series>
+
+                    </mate-graph>
+
+
+                </main>
+              </body>
+            </html>
+
