@@ -1,0 +1,22 @@
+model:
+  name: dataeditor-target
+
+coordinators:
+  bootstrap:
+  - name: initialize-data
+    producers:
+    - initialize-data
+
+producers:
+- name: initialize-data
+  activities:
+  - name: values
+    compose: |
+      let starts = state_init("starts", 0)
+      root = {
+        "starts": state_set("starts", $starts + 1),
+        "state_target": state_init("target.level", 80),
+        "state_speed": state_init("speed", 10.0),
+        "share_level": share_init("level", 50),
+        "share_on": share_init("on", false)
+      }

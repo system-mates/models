@@ -1,0 +1,16 @@
+model:
+  name: auth-target
+
+producers:
+- name: secured-result
+  activities:
+  - name: principal
+    compose: root = caller.security.principal
+
+coordinators:
+  routes:
+  - name: secured-result
+    method: GET
+    path: /secured
+    authorization: {mode: roles, any_of: [operator]}
+    producers: [secured-result]
