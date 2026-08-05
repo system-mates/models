@@ -2,9 +2,7 @@ model:
   name: myuplink
   env:
     MYUPLINK_CLIENT_ID:
-      default: 4d6a6096-fc9a-43d1-8a6d-befe95af796f
     MYUPLINK_CLIENT_SECRET:
-      default: A164B5FAF34FBC9C1E44EB9AA586B0CC
     MYUPLINK_BASE_URL:
       default: https://api.myuplink.com
 metrics:
