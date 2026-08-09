@@ -1,0 +1,89 @@
+coordinators:
+
+  routes:
+  - name: set_target_level
+    path: "target-level"
+    method: PUT
+    authorization: {mode: public}
+    producers:
+    - set_target_level
+
+  - name: set_current_level
+    path: "current-level"
+    method: PUT
+    authorization: {mode: public}
+    producers:
+    - set_current_level
+
+  - name: set_time_range
+    path: "set-time-range"
+    method: PUT
+    authorization: {mode: public}
+    producers:
+    - set_time_range
+
+
+producers:
+- name: set_time_range
+  activities:
+  - name: update
+    compose: |
+      root = state_set("target.time", params.to.number())
+  - name: replan
+    call:
+      mode: many
+      run: [ranking, planning]
+  - name: response
+    compose: |
+      root = {
+        "route_response": {
+          "status": 204,
+          "headers": {
+            "HX-Trigger": "charging-plan-changed, target-level-adjusted",
+            "Cache-Control": "no-store"
+          }
+        }
+      }
+
+
+- name: set_target_level
+  activities:
+  - name: update
+    compose: |
+      root = state_set("target.level", params.target_level.number())
+  - name: replan
+    call:
+      mode: many
+      run: [ranking, planning]
+  - name: response
+    compose: |
+      root = {
+        "route_response": {
+          "status": 204,
+          "headers": {
+            "HX-Trigger": "charging-plan-changed, target-level-adjusted",
+            "Cache-Control": "no-store"
+          }
+        }
+      }
+
+- name: set_current_level
+  activities:
+  - name: update
+    compose: |
+      root = share_set("level", params.current_level.number())
+  - name: replan
+    call:
+      mode: many
+      run: [ranking, planning]
+  - name: response
+    compose: |
+      root = {
+        "route_response": {
+          "status": 204,
+          "headers": {
+            "HX-Trigger": "charging-plan-changed, target-level-adjusted",
+            "Cache-Control": "no-store"
+          }
+        }
+      }

@@ -1,0 +1,138 @@
+model:
+  name: charging
+
+coordinators:
+
+  bootstrap:
+  - name: initialize_laddning
+    producers:
+    - datainit
+    - prices
+
+  schedules:
+
+  - name: elpriser_update_hourly
+    cron: 20 * * * *
+    producers:
+    - prices
+
+  - name: plan_update_quarterly
+    cron: "*/15 * * * *"
+    producers:
+    - ranking
+
+#  - name: execute_plan_each_minute
+#    cron: "* * * * *"
+#    producers:
+#    - controller
+
+  dependencies:
+
+  - name: bindings
+    dependencies:
+    - source:
+        share: prices.2days
+      producers:
+      - ranking
+
+    - source:
+        share: ranked
+      producers:
+      - planning
+
+
+#    - source:
+#        state: target.time
+#      producers:
+#      - ranking
+#      - limiter
+
+#    - source:
+#        state: target.level
+#      producers:
+#      - planning
+#      - limiter
+
+
+producers:
+
+- name: datainit
+  activities:
+  - name: charge
+    compose: |
+      let share_level = share_init("level",60)
+      let state_target_level = state_init("target.level", 100)
+      let state_speed = state_init("speed",10.0)
+      let state_target_time = state_init("target.time", 0)
+
+- name: ranking
+  activities:
+  - name: rank
+    compose: |
+      let cutoff = timestamp_unix() - 15 * 60
+      let prices = share_init("prices.2days", [])
+      let recent = $prices.filter(p -> p.timestamp >= $cutoff)
+      let target_time = state_get("target.time")
+      let eligible = $recent.filter(p -> $target_time > 0 && p.timestamp + 15 * 60 <= $target_time)
+      let sorted = $eligible.sort_by(p -> p.timestamp).sort_by(p -> p.price).enumerated()
+      root.recent = $recent
+      root.target_time = $target_time
+      root.eligible = $eligible 
+      root.sorted = $sorted
+      root.ranked = share_set("ranked",$recent.map_each(p -> {
+           "timestamp": p.timestamp.floor(),
+           "price": (100 * p.price).round().number(),
+           "rank": $sorted.find_by(r -> r.value.timestamp == p.timestamp)
+        })
+      )
+
+- name: planning
+  activities:
+  - name: plan
+    compose: |
+      let bmap = share_get("ranked").fold({}, item -> item.tally.merge({item.value.timestamp.floor().string(): item.value}))
+      let target_time = state_get("target.time")
+      let requested_target = state_get("target.level")
+      let level = share_get("level")
+      let speed = state_get("speed")
+      let remaining = $requested_target - $level
+      let required_intervals = if $target_time > 0 && $remaining > 0 {
+        ((60 * $remaining / $speed) / 15).ceil()
+      } else {
+        0
+      }
+      let plan = share_get("ranked").map_each(p -> if $bmap.get(p.timestamp.floor().string()) != null {
+          p.without("timestamp").assign({
+             "rank": $bmap.get(p.timestamp.floor().string()).rank,
+             "charge": $bmap.get(p.timestamp.floor().string()).rank >= 0 && $bmap.get(p.timestamp.floor().string()).rank < $required_intervals,
+             "timestamp": p.timestamp.floor(),
+          })
+      } else {
+        p
+      })
+      root = share_set("plan",$plan)
+
+- name: prices
+  activities:
+  - name: today
+    io:
+      via: fetch
+      params:
+        return: json
+        url: https://aktuellaelpriser.se/api.php?format=json&omrade=SE4&typ=idag
+  - name: tomorrow
+    io:
+      via: fetch
+      params:
+        return: json
+        url: https://aktuellaelpriser.se/api.php?format=json&omrade=SE4&typ=imorgon
+  - name: combine
+    compose: |
+      let a = activity.today.value.data.priser.merge(activity.tomorrow.value.data.priser)
+      root = $a.map_each(v -> {
+        "timestamp": v.timestamp.floor(),
+        "price": v.pris_kr_kwh,
+      })
+  - name: store
+    compose: 'root = share_set("prices.2days", activity.combine.value)'
+

@@ -1,0 +1,55 @@
+
+coordinators:
+  routes:
+
+  - name: index_page
+    path: "/index"
+    method: GET
+    authorization: {mode: public}
+    portal: Charging
+    producers:
+    - index-page
+
+
+  - name: control-sliders-view
+    path: "control-sliders-view"
+    method: GET
+    authorization: {mode: public}
+    producers:
+    - control-sliders-view
+
+
+producers:
+ 
+- name: index-page
+  activities:
+  - name: index
+    html:
+      template_file: templates/index.html
+
+- name: control-sliders-view
+  activities:
+  - name: view-model
+    compose:
+      bloblang: |
+        let charge_level = share_init("level", 77).number()
+        let requested_goal_level = state_init("target.level", 100)
+        let goal_level = $requested_goal_level.round().number()
+        let target_time = state_init("target.time", 0)
+        let charge_intervals = share_init("intervals", 0)
+        let charge_hours = if $charge_intervals > 0 { $charge_intervals / 4.0 } else { 0.0 }
+        let charge_minutes = ($charge_hours * 60).round()
+        let charge_whole_hours = ($charge_minutes / 60).floor()
+        let charge_remaining_minutes = $charge_minutes - ($charge_whole_hours * 60)
+        let charge_speed = state_init("speed", 10.0) / 1.0
+        root = {
+            "current_level": $charge_level,
+            "target_level": $goal_level,
+        }
+  - name: view
+    html:
+      value: =activity.view-model.value
+      template: |
+        {{/*$view := (activation "view") */}}
+        <mate-slider label="Target level (%)" name="target_level" min="0" max="100" value="{{.target_level}}" hx-put="target-level" hx-trigger="change"></mate-slider>
+        <mate-slider label="Current level (%)" name="current_level" min="0" max="100" value="{{.current_level}}" hx-put="current-level" hx-trigger="change"></mate-slider>

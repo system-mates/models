@@ -1,0 +1,31 @@
+<html>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <head>
+       <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+       <meta charset="utf-8">
+       <meta name="viewport" content="width=device-width, initial-scale=1">
+       <title>Charge Control Demo</title>
+       <link rel="stylesheet" href="/assets/static/mate-layout.css">
+    </head>
+
+    <body>
+
+      <mate-graph title="Charge plan" navigate="time" resolution="15m" legend="show" refresh="60s" refresh-on="charging-plan-changed" >
+
+         <mate-graph-select  hx-post="set-time-range" hx-trigger="mate-graph-selection-changed"  hx-vals="js:{from: event.detail.from,to: event.detail.to}"></mate-graph-select>
+
+         <mate-curve type="bar" label="Planned" interval="900">
+            <mate-share-series key="plan" property="charge"></mate-share-series>
+         </mate-curve>
+
+         <mate-curve type="line" label="Prices">
+            <mate-share-series key="ranked" property="price"></mate-share-series>
+         </mate-curve>
+
+      </mate-graph>
+
+      <section class="panel" layout="stack" gap="medium"  hx-get="control-sliders-view" hx-trigger="load, charging-plan-changed from:body" hx-swap="innerHTML"></section>                                                                                                                                          
+
+    </body>
+
+</html>
