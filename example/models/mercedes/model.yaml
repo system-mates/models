@@ -1,0 +1,234 @@
+model:
+  name: mercedes
+  env:
+    MERCEDES_EMAIL:
+    MERCEDES_PASSWORD:
+    MERCEDES_VIN:
+    MERCEDES_REGION:
+
+coordinators:
+  routes:
+  - name: vehicleattributes
+    method: GET
+    path: /vehicleattributes
+    authorization: {mode: public}
+    producers: [vehicleattributes]
+
+producers:
+- name: vehicleattributes
+  activities:
+  - name: configuration
+    compose: |
+      root = if env.MERCEDES_EMAIL.trim() != "" && env.MERCEDES_PASSWORD != "" && env.MERCEDES_VIN.trim() != "" && env.MERCEDES_REGION.lowercase() == "eu" {
+        true
+      } else {
+        throw("Mercedes requires MERCEDES_EMAIL, MERCEDES_PASSWORD, MERCEDES_VIN and MERCEDES_REGION=EU")
+      }
+  - name: stored_tokens
+    compose: root = state_init("mercedes.oauth", {})
+  - name: ensure_token
+    branch:
+      when: '=activity.stored_tokens.value.access_token.or("") != "" && activity.stored_tokens.value.expires_at.number() > timestamp_unix() + 5'
+      then:
+      - name: use_access_token
+        compose: root = activity.stored_tokens.value
+      else:
+      - name: refresh_or_login
+        branch:
+          when: '=activity.stored_tokens.value.refresh_token.or("") != ""'
+          then:
+          - name: refresh
+            io:
+              via: fetch
+              params:
+                return: response
+                session: mercedes-login
+                url: "https://id.mercedes-benz.com/as/token.oauth2"
+                options:
+                  method: POST
+                  headers:
+                    X-Device-Id: '=secure_token(16)'
+                    X-Request-Id: '=secure_token(16)'
+                    Content-Type: application/x-www-form-urlencoded
+                  body: '="grant_type=refresh_token&refresh_token=" + activity.stored_tokens.value.refresh_token.escape_url_query()'
+          - name: refreshed
+            compose: |
+              root = if activity.refresh.value.status == 200 {
+                state_set("mercedes.oauth", {
+                  "access_token": activity.refresh.value.body.access_token,
+                  "refresh_token": activity.refresh.value.body.refresh_token.or(activity.stored_tokens.value.refresh_token),
+                  "expires_at": timestamp_unix() + activity.refresh.value.body.expires_in.number()
+                })
+              } else {
+                throw("Mercedes token-refresh failed with HTTP " + activity.refresh.value.status.string())
+              }
+          else:
+          - name: pkce
+            compose: |
+              let verifier = secure_token(48)
+              root.verifier = $verifier
+              root.challenge = sha256($verifier).decode("hex").encode("base64rawurl")
+              root.rid = secure_token(24)
+          - name: authorization_init
+            io:
+              via: fetch
+              params:
+                return: response
+                redirects: false
+                session: mercedes-login
+                url: '="https://id.mercedes-benz.com/as/authorization.oauth2?client_id=62778dc4-1de3-44f4-af95-115f06a3a008&code_challenge_method=S256&redirect_uri=rismycar%3A%2F%2Flogin-callback&response_type=code&scope=email%20profile%20ciam-uid%20phone%20openid%20offline_access&code_challenge=" + activity.pkce.value.challenge'
+                response:
+                  body: text
+                options:
+                  method: GET
+                  headers:
+                    User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 15_8_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6.6 Mobile/15E148 Safari/604.1
+                    Accept-Language: de-DE,de;q=0.9
+                    Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+          - name: resume
+            compose: |
+              let location_values = activity.authorization_init.value.headers.get("Location").or(activity.authorization_init.value.headers.get("location"))
+              let location = $location_values.index(0).or($location_values).or("")
+              let query_text = $location.split("?").index(1).or("").split("#").index(0).or("")
+              root.path = $query_text.parse_form_url_encoded().resume.or(throw("Mercedes authorization-init did not return resume"))
+              root.location = $location
+          - name: login_page
+            io:
+              via: fetch
+              params:
+                session: mercedes-login
+                url: '=activity.resume.value.location'
+                options:
+                  method: GET
+          - name: user_agent
+            io:
+              via: fetch
+              params:
+                return: response
+                session: mercedes-login
+                url: https://id.mercedes-benz.com/ciam/auth/ua
+                options:
+                  method: POST
+                  headers:
+                    User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 15_8_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6.6 Mobile/15E148 Safari/604.1
+                    Accept-Language: de-DE,de;q=0.9
+                    Accept: '*/*'
+                    Origin: https://id.mercedes-benz.com
+                    Content-Type: application/json
+                  body: '{"browserName":"Mobile Safari","browserVersion":"15.6.6","osName":"iOS"}'
+          - name: username
+            io:
+              via: fetch
+              params:
+                return: response
+                session: mercedes-login
+                url: "https://id.mercedes-benz.com/ciam/auth/login/user"
+                options:
+                  method: POST
+                  headers:
+                    User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 15_8_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6.6 Mobile/15E148 Safari/604.1
+                    Accept-Language: de-DE,de;q=0.9
+                    Accept: "application/json, text/plain, */*"
+                    Origin: https://id.mercedes-benz.com
+                    Referer: https://id.mercedes-benz.com/ciam/auth/login
+                    Content-Type: application/json
+                  body: >-
+                    ="{\"username\":\"" + env.MERCEDES_EMAIL + "\"}"
+          - name: password
+            io:
+              via: fetch
+              params:
+                return: response
+                session: mercedes-login
+                url: "https://id.mercedes-benz.com/ciam/auth/login/pass"
+                options:
+                  method: POST
+                  headers:
+                    User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 15_8_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6.6 Mobile/15E148 Safari/604.1
+                    Accept-Language: de-DE,de;q=0.9
+                    Accept: "application/json, text/plain, */*"
+                    Origin: https://id.mercedes-benz.com
+                    Referer: https://id.mercedes-benz.com/ciam/auth/login
+                    Content-Type: application/json
+                  body: >-
+                    ="{\"username\":\"" + env.MERCEDES_EMAIL + "\",\"password\":\"" + env.MERCEDES_PASSWORD + "\",\"rememberMe\":false,\"rid\":\"" + activity.pkce.value.rid + "\"}"
+          - name: password_token
+            compose: |
+              root = activity.password.value.body.parse_json().token.or(throw("Mercedes password response did not contain token"))
+          - name: resume_authorization
+            io:
+              via: fetch
+              params:
+                return: response
+                redirects: false
+                session: mercedes-login
+                url: '= "https://id.mercedes-benz.com" + activity.resume.value.path'
+                options:
+                  method: POST
+                  headers:
+                    User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 15_8_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6.6 Mobile/604.1
+                    Accept-Language: de-DE,de;q=0.9
+                    Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+                    Origin: https://id.mercedes-benz.com
+                    Referer: https://id.mercedes-benz.com/ciam/auth/login
+                    Content-Type: application/x-www-form-urlencoded
+                  body: '= "token=" + activity.password_token.value.escape_url_query()'
+          - name: authorization_code
+            compose: |
+              let location = activity.resume_authorization.value.headers.Location.index(0).or("")
+              let query_text = $location.split("?").index(1).or("").split("#").index(0).or("")
+              let fragment_text = $location.split("#").index(1).or("")
+              let query = $query_text.parse_form_url_encoded()
+              let fragment = $fragment_text.parse_form_url_encoded()
+              root = query.code.or(fragment.code).or(throw("Mercedes resume did not return authorization code"))
+          - name: token_exchange
+            io:
+              via: fetch
+              params:
+                return: json
+                session: mercedes-login
+                url: https://id.mercedes-benz.com/as/token.oauth2
+                options:
+                  method: POST
+                  headers:
+                    User-Agent: mycar-store-ece
+                    Ris-Os-Name: android
+                    Ris-Os-Version: '12'
+                    Ris-Sdk-Version: 4.4.2
+                    X-Locale: de-DE
+                    X-Applicationname: 'MyCar/1.30.1 (com.daimler.ris.mercedesme.ece.ios; build:1819; iOS 16.5.0) Alamofire/5.4.0'
+                    Ris-Application-Version: 1.65.1 (3174)
+                    Content-Type: application/x-www-form-urlencoded
+                  body: '= "client_id=62778dc4-1de3-44f4-af95-115f06a3a008&code=" + activity.authorization_code.value.escape_url_query() + "&code_verifier=" + activity.pkce.value.verifier.escape_url_query() + "&grant_type=authorization_code&redirect_uri=rismycar%3A%2F%2Flogin-callback"'
+          - name: logged_in
+            compose: |
+              root = if activity.token_exchange.value.access_token.or("") != "" && activity.token_exchange.value.refresh_token.or("") != "" {
+                state_set("mercedes.oauth", {
+                  "access_token": activity.token_exchange.value.access_token,
+                  "refresh_token": activity.token_exchange.value.refresh_token,
+                  "expires_at": timestamp_unix() + activity.token_exchange.value.expires_in.number()
+                })
+              } else {
+                throw("Mercedes token-exchange returned no usable token")
+              }
+  - name: vehicleattributes
+    io:
+      via: fetch
+      params:
+        return: response
+        url: '= "https://widget.emea-prod.mobilesdk.mercedes-benz.com/v1/vehicle/" + env.MERCEDES_VIN + "/vehicleattributes"'
+        response:
+          body: bytes
+        options:
+          method: GET
+          headers:
+            User-Agent: mycar-store-ece
+            Ris-Os-Name: android
+            Ris-Os-Version: '12'
+            Ris-Sdk-Version: 4.4.2
+            X-Locale: de-DE
+            X-Applicationname: 'MyCar/1.30.1 (com.daimler.ris.mercedesme.ece.ios; build:1819; iOS 16.5.0) Alamofire/5.4.0'
+            Ris-Application-Version: 1.65.1 (3174)
+            X-SessionId: '=secure_token(16)'
+            X-TrackingId: '=secure_token(16)'
+            Authorization: '=activity.ensure_token.value.access_token'
