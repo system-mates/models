@@ -80,6 +80,20 @@
           if (event.key === "Enter" || event.key === " ") select(event);
         });
       }
+      if (this._graph.interactive !== false) {
+        const edgeTargets = [...svg.querySelectorAll('[class*="edge"]')];
+        edgeTargets.forEach((target,index) => {
+          const edge = this._graph.edges?.[index];
+          if (!edge) return;
+          target.classList.add("edge-target");
+          target.setAttribute("role","button");
+          target.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            this.dispatchEvent(new CustomEvent("edge-select", {detail:{edge},bubbles:true}));
+          });
+        });
+      }
       svg.addEventListener("wheel",event => {
         event.preventDefault();
         const factor = event.deltaY > 0 ? 1.12 : .88;

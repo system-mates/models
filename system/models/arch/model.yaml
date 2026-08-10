@@ -22,9 +22,10 @@ producers:
       let matches = activity.structure.value.models.filter(item -> item.id == $requested || item.name == $requested)
       root = if $matches.length() > 0 { $matches.index(0) } else { activity.structure.value.models.index(0) }
   - {name: status, compose: "root = runtime_inspect_status()"}
-  - {name: events, compose: "root = runtime_inspect_events()"}
+  - {name: events, compose: 'root = runtime_inspect_model_events(activity.selection.value.name)'}
+  - {name: event_collection, compose: 'root = runtime_inspect_event_collection(activity.selection.value.name)'}
   - name: view_model
-    compose: 'root = {"mode":"operations","models":activity.structure.value.models,"selected_model":activity.selection.value.name,"structure":activity.structure.value,"structure_json":activity.structure.value.format_json().string(),"status":activity.status.value,"status_json":activity.status.value.format_json().string(),"events_json":activity.events.value.format_json().string()}'
+    compose: 'root = {"mode":"operations","models":activity.structure.value.models,"selected_model":activity.selection.value.name,"structure":activity.structure.value,"structure_json":activity.structure.value.format_json().string(),"status":activity.status.value,"status_json":activity.status.value.format_json().string(),"events_json":activity.events.value.format_json().string(),"event_collection":activity.event_collection.value}'
   - {name: view, html: {template_file: templates/view.html}}
 - name: arch_detail
   activities:
@@ -32,7 +33,8 @@ producers:
   - {name: state, compose: 'root = if params.model.or("") != "" { runtime_inspect_model_state(params.model) } else { runtime_inspect_state() }'}
   - {name: share, compose: 'root = if params.model.or("") != "" { runtime_inspect_model_share(params.model) } else { runtime_inspect_share() }'}
   - {name: execution, compose: 'root = if params.type == "activity" { runtime_inspect_activity_execution(params.producer.or(""),params.activity.or("")) } else { null }'}
-  - {name: result, compose: 'root = {"id":params.id,"type":params.type,"structure":activity.structure.value,"state":activity.state.value,"share":activity.share.value,"execution":activity.execution.value}'}
+  - {name: events, compose: 'root = if params.model.or("") != "" { runtime_inspect_model_events(params.model) } else { runtime_inspect_events() }'}
+  - {name: result, compose: 'root = {"id":params.id,"type":params.type,"structure":activity.structure.value,"state":activity.state.value,"share":activity.share.value,"execution":activity.execution.value,"events":activity.events.value}'}
 - name: arch_reload_model
   activities:
   - {name: request, compose: "root = reload_model(params.model)"}
@@ -42,6 +44,9 @@ producers:
 - name: arch_restart_application
   activities:
   - {name: request, compose: "root = restart_application()"}
+- name: arch_set_event_collection
+  activities:
+  - {name: request, compose: 'root = runtime_set_event_collection(params.model.or(""), params.enabled.or("false") == "true")'}
 
 coordinators:
   routes:
@@ -52,3 +57,4 @@ coordinators:
   - {name: arch_reload_model, method: POST, path: "/lifecycle/reload-model", authorization: {mode: optional, any_of: [admin]}, producers: [arch_reload_model]}
   - {name: arch_restart_model, method: POST, path: "/lifecycle/restart-model", authorization: {mode: optional, any_of: [admin]}, producers: [arch_restart_model]}
   - {name: arch_restart_application, method: POST, path: "/lifecycle/restart-application", authorization: {mode: optional, any_of: [admin]}, producers: [arch_restart_application]}
+  - {name: arch_set_event_collection, method: POST, path: "/event-collection", authorization: {mode: optional}, producers: [arch_set_event_collection]}

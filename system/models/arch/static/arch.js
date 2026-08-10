@@ -24,6 +24,16 @@
   const producerIDs = new Map();
   const modelNames = new Map((structure.models || []).map(model => [model.id,model.name]));
   const selectedModelIDs = new Set([selectedModel]);
+  const dependencyInfo = new Map();
+  for (const coordinator of Object.values(structure.coordinators?.dependencies || {})) {
+    for (const dependency of coordinator.dependencies || []) {
+      const model = modelNames.get(coordinator.model) || coordinator.model || selectedModel;
+      const id = `${dependency.kind}:${model}:${dependency.key}`;
+      const entries = dependencyInfo.get(id) || [];
+      entries.push({coordinator:coordinator.name, model, producers:dependency.producers || [], definition:coordinator});
+      dependencyInfo.set(id, entries);
+    }
+  }
   for (const model of structure.models || []) {
     if (model.name === selectedModel || model.id === selectedModel) {
       selectedModelIDs.add(model.id);
@@ -111,7 +121,7 @@
       if (!inModel(coordinator)) return;
       const model = coordinator.model || selectedModel || "application";
       const id = `${kind}:${model}:${name}`;
-      add(id,kind,name,coordinator);
+      add(id,kind,name,coordinator,{routePath:coordinator.path || ""});
       for (const producer of coordinator.producers || []) {
         const target = producerIDs.get(producer);
         if (target) edges.push({from:id,to:target,type:"activates"});
@@ -140,7 +150,6 @@
   let depth = 1;
   let viewFilter = "all";
   const graph = root.querySelector("mate-d2");
-  const panel = root.querySelector("[data-node-details]");
   const depthLabel = root.querySelector("[data-depth]");
   const valueDialog = root.querySelector("[data-value-dialog]");
   const valueBody = root.querySelector("[data-value-body]");
@@ -171,7 +180,7 @@
     for (const [key,item] of entries) details.append(valueExpression(item,key,false));
     return details;
   }
-  async function showValueDialog(node,value) {
+  async function showValueDialog(node,value,eventList=events) {
     root.querySelector("[data-value-kind]").textContent = node.type.toUpperCase();
     root.querySelector("[data-value-title]").textContent = node.label;
     valueBody.replaceChildren();
@@ -186,6 +195,62 @@
       expression.append(valueExpression(value,`${node.label} · ${valueType(value)}`));
       valueBody.append(expression);
     }
+    const dependencies = dependencyInfo.get(node.id) || [];
+    if (dependencies.length) {
+      const list = document.createElement("details");
+      list.className = "value-expression";
+      const summary = document.createElement("summary");
+      summary.textContent = `Dependencies (${dependencies.length})`;
+      list.append(summary);
+      for (const dependency of dependencies) {
+        const event = eventList.filter(item => item && item.coordinator_type === "dependencies" &&
+          item.coordinator_name === dependency.coordinator && item.source_kind === node.type &&
+          item.source_key === node.label).slice(-1)[0];
+        const item = document.createElement("details");
+        const itemSummary = document.createElement("summary");
+        itemSummary.textContent = dependency.coordinator;
+        item.append(itemSummary);
+        item.append(valueExpression(event || {}, "Latest event", true));
+        item.append(valueExpression(dependency.definition || {}, "Coordinator definition", true));
+        list.append(item);
+      }
+      valueBody.append(list);
+    }
+    if (!valueDialog.open && typeof valueDialog.showModal === "function") valueDialog.showModal();
+    else if (!valueDialog.open) valueDialog.setAttribute("open","");
+  }
+  function latestCoordinatorEvent(node) {
+    const candidates = events.filter(event => {
+      if (!event || typeof event !== "object") return false;
+      if (node.type === "route") return event.coordinator_type === "route" && event.coordinator_name === node.label;
+      if (node.type === "schedule") return event.coordinator_type === "scheduler" && event.coordinator_name === node.label;
+      if (node.type === "bootstrap") return event.coordinator_type === "startup" && event.coordinator_name === node.label;
+      return false;
+    });
+    return candidates[candidates.length - 1] || null;
+  }
+  async function showCoordinatorDialog(node, value) {
+    root.querySelector("[data-value-kind]").textContent = node.type.toUpperCase();
+    root.querySelector("[data-value-title]").textContent = node.label;
+    valueBody.replaceChildren();
+    let eventList = events;
+    try {
+      const query = new URLSearchParams({id:node.id,type:node.type,model:value?.model || selectedModel});
+      const response = await fetch(`/arch/detail?${query}`,{credentials:"same-origin"});
+      if (response.ok) {
+        const payload = await response.json();
+        if (Array.isArray(payload.events)) eventList = payload.events;
+      }
+    } catch (_) {}
+    const event = eventList.filter(item => {
+      if (!item || typeof item !== "object") return false;
+      if (node.type === "route") return item.coordinator_type === "route" && item.coordinator_name === node.label;
+      if (node.type === "schedule") return item.coordinator_type === "scheduler" && item.coordinator_name === node.label;
+      if (node.type === "bootstrap") return item.coordinator_type === "startup" && item.coordinator_name === node.label;
+      return false;
+    }).slice(-1)[0] || null;
+    valueBody.append(valueExpression(event || {}, "Latest event", true));
+    valueBody.append(valueExpression(value || {}, "Coordinator definition", true));
     if (!valueDialog.open && typeof valueDialog.showModal === "function") valueDialog.showModal();
     else if (!valueDialog.open) valueDialog.setAttribute("open","");
   }
@@ -352,6 +417,10 @@
     const value = details.get(selectedID);
     const parts = selectedID.split(":");
     const selectedNode = nodes.find(node => node.id === selectedID);
+    if (mode === "operations" && ["route","schedule","bootstrap"].includes(selectedNode?.type)) {
+      showCoordinatorDialog(selectedNode,value);
+      return;
+    }
     if (selectedNode?.type === "state" || selectedNode?.type === "share") {
       root.querySelector("[data-value-kind]").textContent = selectedNode.type.toUpperCase();
       root.querySelector("[data-value-title]").textContent = selectedNode.label;
@@ -364,7 +433,7 @@
         if (!response.ok) throw new Error("value request failed");
         const payload = await response.json();
         const entry = (payload[selectedNode.type] || []).find(item => item.key === selectedNode.label);
-        showValueDialog(selectedNode,entry?.value);
+        showValueDialog(selectedNode,entry?.value,payload.events || events);
       } catch {
         valueBody.innerHTML = '<p class="value-empty">The current value could not be loaded.</p>';
       }
@@ -402,28 +471,32 @@
     }
     center = selectedID;
     depth = 1;
-    const model = selectedNode?.type === "model" ? parts[1] : (value?.model || "");
-    panel.replaceChildren();
-    const heading = document.createElement("h2");
-    const pre = document.createElement("pre");
-    heading.textContent = selectedNode?.label || center;
-    pre.textContent = "Loading generic runtime information…";
-    panel.append(heading,pre);
-    try {
-      const query = new URLSearchParams({
-        id:selectedID,
-        type:selectedNode?.type || parts[0],
-        model,
-        producer:value?.producer || (selectedNode?.type === "producer" ? parts[2] : ""),
-        activity:selectedNode?.type === "activity" || selectedNode?.type === "html_activity" ? parts[3] || "" : ""
-      });
-      const response = await fetch(`/arch/detail?${query}`,{credentials:"same-origin"});
-      pre.textContent = JSON.stringify(response.ok ? await response.json() : {definition:value,status,latest_events:events.slice(-5)},null,2);
-    } catch {
-      pre.textContent = JSON.stringify({definition:value,status},null,2);
-    }
     render();
   });
+  const eventCollectionToggle = root.querySelector("[data-event-collection-toggle]");
+  if (eventCollectionToggle) {
+    eventCollectionToggle.addEventListener("click", async () => {
+      const enabled = eventCollectionToggle.dataset.enabled === "true";
+      eventCollectionToggle.disabled = true;
+      try {
+        const body = new URLSearchParams({
+          model: eventCollectionToggle.dataset.model || selectedModel,
+          enabled: String(!enabled),
+          csrf_token: eventCollectionToggle.dataset.csrf || ""
+        });
+        const response = await fetch("/arch/event-collection", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {"Content-Type": "application/x-www-form-urlencoded"},
+          body
+        });
+        if (!response.ok) throw new Error("event collection update failed");
+        window.location.reload();
+      } catch (_) {
+        eventCollectionToggle.disabled = false;
+      }
+    });
+  }
   root.querySelector("[data-expand]").onclick = () => { depth++; render(); };
   root.querySelector("[data-collapse]").onclick = () => { depth=Math.max(0,depth-1); render(); };
   root.querySelector("[data-view-filter]")?.addEventListener("change",event => {

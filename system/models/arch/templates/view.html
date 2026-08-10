@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MakeMate Arch — {{ .activity.view_model.value.mode }}</title>
   <link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2">
-  <link rel="stylesheet" href="/arch/static/arch.css?v=20260731-1">
-  <script src="/arch/static/mate-d2.js" defer></script>
-  <script src="/arch/static/arch.js?v=20260731-2" defer></script>
+  <link rel="stylesheet" href="/arch/static/arch.css?v=20260809-1">
+  <script src="/arch/static/mate-d2.js?v=20260809-1" defer></script>
+  <script src="/arch/static/arch.js?v=20260810-1" defer></script>
 </head>
 <body>
 <main class="arch-shell" data-arch-view="{{ .activity.view_model.value.mode }}" data-selected-model="{{ .activity.view_model.value.selected_model }}" data-csrf="{{ .caller.security.csrf_token }}">
@@ -43,6 +43,16 @@
       <form method="post" action="/arch/lifecycle/restart-application"><input type="hidden" name="csrf_token" value="{{ .caller.security.csrf_token }}"><button type="submit" onclick="return confirm('Restart the application?')">Restart application</button></form>
     </div>
   </section>
+  <section class="panel lifecycle-controls" aria-label="Event collection">
+    <h2>Event collection</h2>
+    <p class="muted">Collection is disabled by default for every model.</p>
+    <button type="button" data-event-collection-toggle
+      data-model="{{ .activity.view_model.value.selected_model }}"
+      data-enabled="{{ .activity.view_model.value.event_collection.enabled }}"
+      data-csrf="{{ .caller.security.csrf_token }}">
+      {{ if .activity.view_model.value.event_collection.enabled }}Disable event collection{{ else }}Enable event collection{{ end }}
+    </button>
+  </section>
   {{ end }}
   <section class="arch-grid{{ if eq .activity.view_model.value.mode "architecture" }} architecture-static{{ end }}">
     <div>
@@ -63,7 +73,6 @@
         <span><i class="legend-swatch io"></i>Producer with IO activity</span>
       </div>
     </div>
-    {{ if eq .activity.view_model.value.mode "operations" }}<aside class="panel" data-node-details><h2>Selection</h2><p>Select a graph node. Selection never performs a lifecycle operation.</p></aside>{{ end }}
   </section>
   <script type="application/json" data-structure>{{ .activity.view_model.value.structure_json }}</script>
   {{ if eq .activity.view_model.value.mode "operations" }}<script type="application/json" data-status>{{ .activity.view_model.value.status_json }}</script><script type="application/json" data-events>{{ .activity.view_model.value.events_json }}</script>{{ end }}
