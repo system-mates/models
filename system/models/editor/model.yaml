@@ -1,0 +1,13 @@
+model:
+  name: editor
+
+producers:
+- name: editor_page
+  activities:
+  - name: page
+    html:
+      template_file: templates/view.html
+
+coordinators:
+  routes:
+  - {name: editor_root, method: GET, path: "/", authorization: {mode: optional}, portal: Editor, producers: [editor_page]}

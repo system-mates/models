@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mate editor</title>
+  <link rel="stylesheet" href="/assets/static/mate-layout.css?v=20260731-2">
+  <link rel="stylesheet" href="/editor/static/editor.css?v=1">
+  <script type="module" src="/editor/static/editor.js?v=18" defer></script>
+</head>
+<body>
+<main class="editor-shell" data-mate-editor>
+  <header class="editor-header"><div><p class="muted">Mate</p><h1>Model editor</h1></div><span data-editor-state>Select a file</span></header>
+  <section class="editor-toolbar" aria-label="Editor actions">
+    <button type="button" data-save disabled>Save</button>
+    <button type="button" data-undo disabled>Undo</button>
+    <button type="button" data-redo disabled>Redo</button>
+    <span data-editor-message></span>
+  </section>
+  <section class="panel model-selector" aria-label="Model selection"><h2>Model</h2><div class="model-selector-options" data-model-list></div></section>
+  <section class="editor-layout">
+    <nav class="editor-files" aria-label="Editable files"><h2 data-file-heading>Mate files</h2><div class="editor-tree" data-file-list></div></nav>
+    <section class="editor-pane" aria-label="File editor"><div class="editor-path" data-file-path>Select a file</div><div class="editor-host" data-editor-host></div></section>
+  </section>
+</main>
+</body>
+</html>
