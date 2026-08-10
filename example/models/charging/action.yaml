@@ -17,7 +17,7 @@ coordinators:
 
   - name: set_time_range
     path: "set-time-range"
-    method: PUT
+    method: POST
     authorization: {mode: public}
     producers:
     - set_time_range
