@@ -32,8 +32,8 @@ Data Editor, and Arch. Example models demonstrate application behavior and may
 be used by the demos. Test-only models exist solely to exercise a system model
 and are not part of the distributed model set.
 
-See the [Mate YAML language](https://github.com/system-mates/docs/blob/main/users/yaml-language.md)
-and [composition guide](https://github.com/system-mates/docs/blob/main/users/application-configuration.md)
+See the [Model Reference](https://github.com/system-mates/docs/blob/main/reference/model/README.md)
+and [Mate Developer Guide](https://github.com/system-mates/docs/blob/main/guides/mate-developer/README.md)
 when writing or assembling models.
 
 ## Use or build the models image
