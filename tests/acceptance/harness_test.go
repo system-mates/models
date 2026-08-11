@@ -148,20 +148,20 @@ func startMateConfigured(t *testing.T, instanceConfiguration string, models ...s
 		}
 		withUsers = withUsers || model == "users"
 	}
+	address := availableAddress(t)
 	configuration := strings.TrimSpace(instanceConfiguration)
 	if configuration != "" {
 		configuration += "\n\n"
 	}
 	configuration += "logging:\n  console:\n    level: error\n  persistence:\n    enabled: true\n    level: info\n    retention: 7d\n"
+	configuration += fmt.Sprintf("server:\n  http_listen: %s\n", address)
+	if withUsers {
+		configuration += "  csrf_secret: ${MATE_CSRF_SECRET}\n"
+	}
 	if err := os.WriteFile(filepath.Join(root, "mate.yaml"), []byte(configuration), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	address := availableAddress(t)
-	arguments := []string{"-data-path", filepath.Join(root, "data"), "-http-listen", address}
-	if withUsers {
-		arguments = append(arguments, "-csrf-secret="+csrfSecret)
-	}
-	arguments = append(arguments, root)
+	arguments := []string{root}
 	logs := &lockedBuffer{}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -173,7 +173,7 @@ func startMateConfigured(t *testing.T, instanceConfiguration string, models ...s
 		client:      &http.Client{Jar: jar, Timeout: 3 * time.Second},
 		logs:        logs,
 		arguments:   append([]string(nil), arguments...),
-		environment: append(os.Environ(), "MATE_ADMIN_USERNAME="+adminUsername, "MATE_ADMIN_PASSWORD="+adminPassword),
+		environment: append(os.Environ(), "MATE_ADMIN_USERNAME="+adminUsername, "MATE_ADMIN_PASSWORD="+adminPassword, "MATE_CSRF_SECRET="+csrfSecret),
 	}
 	instance.startProcess(t)
 	t.Cleanup(func() { instance.stop(t) })

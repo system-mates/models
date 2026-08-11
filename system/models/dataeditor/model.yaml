@@ -4,7 +4,7 @@ producers:
 - name: dataeditor_page
   activities:
   - name: models
-    compose: 'root = runtime_data_models()
+    compose: 'root = runtime_inspect_model().models.map_each(item -> item.name)
 
 '
   - name: selection
