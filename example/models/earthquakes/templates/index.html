@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Global earthquake activity</title>
+  <style>
+    body { margin: 0; padding: 2rem; font-family: system-ui, sans-serif; background: #f7f7f7; color: #202020; }
+    main { max-width: 1200px; margin: 0 auto; }
+    h1 { margin-bottom: .35rem; }
+    .lede { color: #52606d; margin-top: 0; }
+    mate-graph { display: block; height: 620px; background: white; border: 1px solid #ddd; border-radius: .75rem; }
+    .source { margin-top: 1rem; font-size: .9rem; color: #52606d; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Global earthquake activity</h1>
+    <p class="lede">Rolling counts from the USGS Earthquake Hazards Program, sampled every five minutes.</p>
+    <mate-graph type="line"
+      title="Earthquakes reported during the past 24 hours"
+      navigate="time" range="1d" refresh="5m" legend="show">
+      <mate-metric-series model="earthquakes" metric="activity" property="past_hour" label="Past hour"></mate-metric-series>
+      <mate-metric-series model="earthquakes" metric="activity" property="past_day" label="Past 24 hours"></mate-metric-series>
+      <mate-metric-series model="earthquakes" metric="activity" property="magnitude_1" label="Magnitude 1+"></mate-metric-series>
+      <mate-metric-series model="earthquakes" metric="activity" property="magnitude_2_5" label="Magnitude 2.5+"></mate-metric-series>
+      <mate-metric-series model="earthquakes" metric="activity" property="magnitude_4_5" label="Magnitude 4.5+"></mate-metric-series>
+      <mate-metric-series model="earthquakes" metric="activity" property="tsunami" label="Tsunami flag"></mate-metric-series>
+    </mate-graph>
+    <p class="source">Source: <a href="https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php">USGS real-time GeoJSON feeds</a>.</p>
+  </main>
+</body>
+</html>

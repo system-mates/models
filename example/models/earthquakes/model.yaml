@@ -1,0 +1,53 @@
+model:
+  name: earthquakes
+
+metrics:
+  authorization: {mode: public}
+
+coordinators:
+  bootstrap:
+  - name: initial-collection
+    producers: [collect-earthquakes]
+  schedules:
+  - name: earthquake-schedule
+    every: 5m
+    producers: [collect-earthquakes]
+  routes:
+  - name: dashboard
+    method: GET
+    path: /
+    authorization: {mode: public}
+    portal: Earthquake Activity
+    producers: [dashboard-page]
+
+producers:
+- name: collect-earthquakes
+  activities:
+  - name: usgs-feed
+    io:
+      via: fetch
+      direction: input
+      params:
+        return: json
+        url: https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson
+        options:
+          method: GET
+          headers:
+            Accept: application/geo+json, application/json
+            User-Agent: system-mates-earthquakes/1.0
+  - name: activity-metric
+    metric:
+      name: activity
+      properties:
+        past_hour: '=activity.usgs-feed.value.features.filter(event -> event.properties.time >= (timestamp_unix() - 3600) * 1000).length()'
+        past_day: '=activity.usgs-feed.value.features.length()'
+        magnitude_1: '=activity.usgs-feed.value.features.filter(event -> event.properties.mag.number().or(0) >= 1).length()'
+        magnitude_2_5: '=activity.usgs-feed.value.features.filter(event -> event.properties.mag.number().or(0) >= 2.5).length()'
+        magnitude_4_5: '=activity.usgs-feed.value.features.filter(event -> event.properties.mag.number().or(0) >= 4.5).length()'
+        tsunami: '=activity.usgs-feed.value.features.filter(event -> event.properties.tsunami.number().or(0) == 1).length()'
+
+- name: dashboard-page
+  activities:
+  - name: page
+    html:
+      template_file: templates/index.html
