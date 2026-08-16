@@ -12,10 +12,15 @@ coordinators:
     method: GET
     path: /vehicleattributes
     authorization: {mode: public}
-    producers: [vehicleattributes]
+    producers: [vehicleattributes_raw]
+  - name: soc
+    method: GET
+    path: /soc
+    authorization: {mode: public}
+    producers: [soc]
 
 producers:
-- name: vehicleattributes
+- name: vehicleattributes_raw
   activities:
   - name: configuration
     compose: |
@@ -232,3 +237,14 @@ producers:
             X-SessionId: '=secure_token(16)'
             X-TrackingId: '=secure_token(16)'
             Authorization: '=activity.ensure_token.value.access_token'
+- name: soc
+  activities:
+  - name: raw
+    call:
+      mode: one
+      run: [vehicleattributes_raw]
+  - name: decode
+    protobuf:
+      schema: proto/vehicle-status.proto
+      message: mercedes.VEPUpdate
+      value: '=activity.raw.value.body'

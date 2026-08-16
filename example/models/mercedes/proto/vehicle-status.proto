@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package mercedes;
+
+message VEPUpdate {
+  map<string, VehicleAttributeStatus> attributes = 11;
+}
+
+message VehicleAttributeStatus {
+  int64 timestamp_in_ms = 10;
+  oneof attribute_type {
+    int64 int_value = 4;
+    double double_value = 7;
+  }
+}
